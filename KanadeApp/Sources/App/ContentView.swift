@@ -57,44 +57,46 @@ struct ContentView: View {
                 }
             }
         }
-        .safeAreaInset(edge: .bottom, spacing: 0) {
+        .tabViewBottomAccessory {
             if appState.client?.state?.queue.isEmpty == false {
-                NavigationLink {
-                    NowPlayingView()
-                } label: {
-                    NowPlayingBar()
-                }
-                .buttonStyle(.plain)
+                NowPlayingBar(placement: .iosAccessory)
             }
         }
+        .tabBarMinimizeBehavior(.onScrollDown)
     }
     #endif
 
     #if os(macOS)
     var macContent: some View {
-        VStack(spacing: 0) {
-            NavigationSplitView {
-                List(selection: $sidebarSelection) {
-                    Label("Library", systemImage: "square.stack")
-                        .tag(SidebarItem.library)
-                    Label("Search", systemImage: "magnifyingglass")
-                        .tag(SidebarItem.search)
-                    Label("Queue", systemImage: "list.bullet")
-                        .tag(SidebarItem.queue)
-                    Label("Nodes", systemImage: "speaker.wave.2")
-                        .tag(SidebarItem.nodes)
-                    Label("Settings", systemImage: "gearshape")
-                        .tag(SidebarItem.settings)
-                }
-                .navigationSplitViewColumnWidth(min: 180, ideal: 200)
-            } detail: {
-                NavigationStack {
-                    detailView
-                }
+        NavigationSplitView {
+            List(selection: $sidebarSelection) {
+                Label("Library", systemImage: "square.stack")
+                    .tag(SidebarItem.library)
+                Label("Search", systemImage: "magnifyingglass")
+                    .tag(SidebarItem.search)
+                Label("Queue", systemImage: "list.bullet")
+                    .tag(SidebarItem.queue)
+                Label("Nodes", systemImage: "speaker.wave.2")
+                    .tag(SidebarItem.nodes)
+                Label("Settings", systemImage: "gearshape")
+                    .tag(SidebarItem.settings)
             }
-            if appState.client?.state?.queue.isEmpty == false {
-                Divider()
-                NowPlayingBar()
+            .navigationSplitViewColumnWidth(min: 180, ideal: 200)
+        } detail: {
+            NavigationStack {
+                detailView
+                    .safeAreaInset(edge: .bottom, spacing: 0) {
+                        if appState.client?.state?.queue.isEmpty == false {
+                            HStack {
+                                Spacer(minLength: 0)
+                                NowPlayingBar(placement: .macFloating)
+                                    .frame(maxWidth: 860)
+                                Spacer(minLength: 0)
+                            }
+                            .padding(.horizontal, 20)
+                            .padding(.bottom, 12)
+                        }
+                    }
             }
         }
     }

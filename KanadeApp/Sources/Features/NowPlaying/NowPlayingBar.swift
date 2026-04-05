@@ -1,12 +1,21 @@
 import SwiftUI
 import KanadeKit
 
+enum NowPlayingBarPlacement {
+    case iosAccessory
+    case macFloating
+}
+
 struct NowPlayingBar: View {
     @Environment(AppState.self) private var appState
+
+    let placement: NowPlayingBarPlacement
 
     @State private var isShowingNowPlaying = false
     @State private var seekPosition: Double = 0
     @State private var isSeeking = false
+    @State private var volumeValue: Double = 0
+    @State private var isAdjustingVolume = false
 
     private var client: KanadeClient? { appState.client }
     private var playbackState: PlaybackState? { client?.state }
@@ -56,6 +65,10 @@ struct NowPlayingBar: View {
         playbackState?.shuffle ?? false
     }
 
+    init(placement: NowPlayingBarPlacement = .iosAccessory) {
+        self.placement = placement
+    }
+
     var body: some View {
         Group {
             if let currentTrack {
@@ -70,6 +83,7 @@ struct NowPlayingBar: View {
         #endif
         .onAppear {
             syncSeekPosition()
+            syncVolumeValue()
         }
         .onChange(of: currentTrack?.id) {
             syncSeekPosition()
@@ -77,6 +91,11 @@ struct NowPlayingBar: View {
         .onChange(of: currentPosition) {
             if !isSeeking {
                 syncSeekPosition()
+            }
+        }
+        .onChange(of: currentVolume) {
+            if !isAdjustingVolume {
+                syncVolumeValue()
             }
         }
     }
@@ -88,32 +107,13 @@ struct NowPlayingBar: View {
 
             compactContent(currentTrack: currentTrack)
         }
-        .background(.ultraThinMaterial)
-        .background(Color.primary.opacity(0.0001))
-        .contentShape(Rectangle())
-        .overlay(alignment: .top) {
-            Rectangle()
-                .fill(Color.primary.opacity(0.08))
-                .frame(height: 1)
-        }
+        .padding(.horizontal, horizontalPadding)
+        .padding(.vertical, verticalPadding)
     }
 
     private func compactContent(currentTrack: Track) -> some View {
         HStack(spacing: 12) {
-            ArtworkView(mediaClient: appState.mediaClient, albumId: currentTrack.albumId)
-                .frame(width: 40, height: 40)
-                .clipShape(RoundedRectangle(cornerRadius: 4))
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(currentTrack.title ?? "Untitled")
-                    .font(.subheadline.weight(.semibold))
-                    .lineLimit(1)
-
-                Text(currentTrack.artist ?? "Unknown Artist")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            }
+            compactInfoCluster(currentTrack: currentTrack)
 
             Spacer()
 
@@ -122,15 +122,15 @@ struct NowPlayingBar: View {
             } label: {
                 Image(systemName: isPlaying ? "pause.fill" : "play.fill")
                     .font(.callout)
-                    .frame(width: 32, height: 32)
-                    .background(.regularMaterial, in: Circle())
             }
             .buttonStyle(.plain)
+            .frame(width: 36, height: 36)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
         .frame(maxWidth: .infinity)
         .frame(height: 60)
+        .modifier(PlacementBackgroundModifier(placement: placement))
     }
 
     private func fullContent(currentTrack: Track) -> some View {
@@ -143,33 +143,61 @@ struct NowPlayingBar: View {
         .padding(.vertical, 8)
         .frame(maxWidth: .infinity)
         .frame(height: 96)
+        .modifier(PlacementBackgroundModifier(placement: placement))
     }
 
     private func leftColumn(currentTrack: Track) -> some View {
         HStack(spacing: 10) {
             ArtworkView(mediaClient: appState.mediaClient, albumId: currentTrack.albumId)
-                .frame(width: 64, height: 64)
+                .frame(width: fullArtworkSize, height: fullArtworkSize)
                 .clipShape(RoundedRectangle(cornerRadius: 4))
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(currentTrack.title ?? "Untitled")
                     .font(.system(size: 13, weight: .bold))
+                    .foregroundStyle(.primary)
                     .lineLimit(1)
 
                 Text(currentTrack.artist ?? "Unknown Artist")
                     .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(secondaryTextColor)
                     .lineLimit(1)
             }
             Spacer()
         }
         .frame(maxWidth: .infinity)
         .contentShape(Rectangle())
-        .onTapGesture(count: 2) {
-            #if os(macOS)
-            isShowingNowPlaying = true
-            #endif
+        #if os(macOS)
+        .onTapGesture {
+            openNowPlaying()
         }
+        #endif
+    }
+
+    private func compactInfoCluster(currentTrack: Track) -> some View {
+        HStack(spacing: 12) {
+            ArtworkView(mediaClient: appState.mediaClient, albumId: currentTrack.albumId)
+                .frame(width: compactArtworkSize, height: compactArtworkSize)
+                .clipShape(RoundedRectangle(cornerRadius: 4))
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(currentTrack.title ?? "Untitled")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+
+                Text(currentTrack.artist ?? "Unknown Artist")
+                    .font(.caption)
+                    .foregroundStyle(secondaryTextColor)
+                    .lineLimit(1)
+            }
+        }
+        .contentShape(Rectangle())
+        #if os(macOS)
+        .onTapGesture {
+            openNowPlaying()
+        }
+        #endif
     }
 
     private var centerColumn: some View {
@@ -277,25 +305,21 @@ struct NowPlayingBar: View {
                     .font(.system(size: 12))
                     .foregroundStyle(.secondary)
 
-                GeometryReader { geo in
-                    Rectangle()
-                        .fill(Color.primary.opacity(0.12))
-                        .overlay(alignment: .leading) {
-                            Rectangle()
-                                .fill(Color.accentColor)
-                                .frame(width: geo.size.width * (currentVolume / 100))
+                Slider(
+                    value: Binding(
+                        get: { volumeValue },
+                        set: { volumeValue = $0 }
+                    ),
+                    in: 0...100,
+                    onEditingChanged: { editing in
+                        isAdjustingVolume = editing
+                        client?.setVolume(Int(volumeValue.rounded()))
+                        if !editing {
+                            syncVolumeValue()
                         }
-                        .clipShape(RoundedRectangle(cornerRadius: 2))
-                        .contentShape(Rectangle())
-                        .gesture(
-                            DragGesture(minimumDistance: 0)
-                                .onChanged { value in
-                                    let vol = (value.location.x / geo.size.width) * 100
-                                    client?.setVolume(Int(min(max(vol, 0), 100).rounded()))
-                                }
-                        )
-                }
-                .frame(width: 80, height: 4)
+                    }
+                )
+                .frame(width: 90)
 
                 Image(systemName: "speaker.wave.3.fill")
                     .font(.system(size: 12))
@@ -303,6 +327,73 @@ struct NowPlayingBar: View {
             }
         }
         .frame(maxWidth: .infinity)
+    }
+
+    @ViewBuilder
+    private var barBackground: some View {
+        if #available(iOS 26.0, macOS 26.0, *) {
+            switch placement {
+            case .iosAccessory:
+                Color.clear
+            case .macFloating:
+                Color.clear
+                    .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                    .shadow(color: .black.opacity(0.06), radius: 10, y: 3)
+            }
+        } else {
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(.regularMaterial)
+                .overlay {
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .strokeBorder(.quaternary.opacity(0.5), lineWidth: 0.5)
+                }
+                .shadow(color: .black.opacity(placement == .iosAccessory ? 0.03 : 0.06), radius: placement == .iosAccessory ? 6 : 10, y: placement == .iosAccessory ? 1 : 3)
+        }
+    }
+
+    private var secondaryTextColor: Color {
+        switch placement {
+        case .iosAccessory:
+            return .primary.opacity(0.78)
+        case .macFloating:
+            return .primary.opacity(0.92)
+        }
+    }
+
+    private var horizontalPadding: CGFloat {
+        switch placement {
+        case .iosAccessory:
+            return 0
+        case .macFloating:
+            return 0
+        }
+    }
+
+    private var verticalPadding: CGFloat {
+        switch placement {
+        case .iosAccessory:
+            return 0
+        case .macFloating:
+            return 0
+        }
+    }
+
+    private var compactArtworkSize: CGFloat {
+        switch placement {
+        case .iosAccessory:
+            return 28
+        case .macFloating:
+            return 40
+        }
+    }
+
+    private var fullArtworkSize: CGFloat {
+        switch placement {
+        case .iosAccessory:
+            return 52
+        case .macFloating:
+            return 64
+        }
     }
 
     private var seekProgress: CGFloat {
@@ -333,8 +424,18 @@ struct NowPlayingBar: View {
         }
     }
 
+    private func openNowPlaying() {
+        #if os(macOS)
+        isShowingNowPlaying = true
+        #endif
+    }
+
     private func syncSeekPosition() {
         seekPosition = min(currentPosition, sliderDuration)
+    }
+
+    private func syncVolumeValue() {
+        volumeValue = min(max(currentVolume, 0), 100)
     }
 
     private func formatTime(_ seconds: Double) -> String {
@@ -342,5 +443,37 @@ struct NowPlayingBar: View {
         let minutes = totalSeconds / 60
         let remainingSeconds = totalSeconds % 60
         return String(format: "%d:%02d", minutes, remainingSeconds)
+    }
+}
+
+private struct PlacementBackgroundModifier: ViewModifier {
+    let placement: NowPlayingBarPlacement
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        switch placement {
+        case .iosAccessory:
+            content
+        case .macFloating:
+            content.background(MacFloatingBarBackground())
+        }
+    }
+}
+
+private struct MacFloatingBarBackground: View {
+    var body: some View {
+        if #available(macOS 26.0, *) {
+            Color.clear
+                .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                .shadow(color: .black.opacity(0.06), radius: 10, y: 3)
+        } else {
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(.regularMaterial)
+                .overlay {
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .strokeBorder(.quaternary.opacity(0.5), lineWidth: 0.5)
+                }
+                .shadow(color: .black.opacity(0.06), radius: 10, y: 3)
+        }
     }
 }
