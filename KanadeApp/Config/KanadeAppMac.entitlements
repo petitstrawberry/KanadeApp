@@ -1,0 +1,5 @@
+{
+  "com.apple.security.app-sandbox": {
+    "enabled": false
+  }
+}

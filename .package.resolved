@@ -1,0 +1,15 @@
+{
+  "originHash" : "278cbce96bfe8eb2fddf127439b174276503f49019ac1a14fb3e1f0b5c85d0b1",
+  "pins" : [
+    {
+      "identity" : "kanadekit",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/petitstrawberry/KanadeKit",
+      "state" : {
+        "branch" : "main",
+        "revision" : "ed128213b75040f5c27bf186ad4907d7aaf4e8c3"
+      }
+    }
+  ],
+  "version" : 3
+}
