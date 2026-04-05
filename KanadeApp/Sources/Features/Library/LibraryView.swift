@@ -1,5 +1,8 @@
 import SwiftUI
 import KanadeKit
+#if canImport(AppKit)
+import AppKit
+#endif
 
 struct LibraryView: View {
     @Environment(AppState.self) private var appState
@@ -10,7 +13,10 @@ struct LibraryView: View {
     @State private var isLoading = false
     @State private var errorMessage: String?
     @State private var cardMinWidth: CGFloat = 150
-    @State private var lastMagnification: CGFloat = 1
+
+    #if canImport(AppKit)
+    @State private var magnifyMonitor: Any?
+    #endif
 
     var body: some View {
         Group {
@@ -30,7 +36,37 @@ struct LibraryView: View {
         .task {
             await loadLibrary()
         }
+        .onAppear {
+            #if canImport(AppKit)
+            startMagnifyMonitor()
+            #endif
+        }
+        .onDisappear {
+            #if canImport(AppKit)
+            stopMagnifyMonitor()
+            #endif
+        }
     }
+
+    #if canImport(AppKit)
+    private func startMagnifyMonitor() {
+        magnifyMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [self] event in
+            let mag = event.magnification
+            if abs(mag) > 0.001 {
+                let proposed = cardMinWidth * (1 + mag * 2)
+                cardMinWidth = min(max(proposed, 120), 300)
+            }
+            return event
+        }
+    }
+
+    private func stopMagnifyMonitor() {
+        if let monitor = magnifyMonitor {
+            NSEvent.removeMonitor(monitor)
+            magnifyMonitor = nil
+        }
+    }
+    #endif
 
     @ViewBuilder
     private var libraryContent: some View {
@@ -70,20 +106,6 @@ struct LibraryView: View {
             }
             .padding()
         }
-        .simultaneousGesture(magnifyGesture)
-    }
-
-    private var magnifyGesture: some Gesture {
-        MagnifyGesture()
-            .onChanged { value in
-                let delta = value.magnification / lastMagnification
-                let proposed = cardMinWidth * delta
-                cardMinWidth = min(max(proposed, 120), 300)
-                lastMagnification = value.magnification
-            }
-            .onEnded { _ in
-                lastMagnification = 1
-            }
     }
 
     private var albumColumns: [GridItem] {

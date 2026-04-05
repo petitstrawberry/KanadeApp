@@ -2,9 +2,47 @@ import SwiftUI
 import KanadeKit
 #if canImport(UIKit)
 import UIKit
+typealias PlatformImage = UIImage
 #elseif canImport(AppKit)
 import AppKit
+typealias PlatformImage = NSImage
 #endif
+
+@MainActor
+final class ArtworkCache {
+    static let shared = ArtworkCache()
+
+    private let cache = NSCache<NSString, PlatformImageWrapper>()
+
+    private init() {
+        cache.countLimit = 200
+        cache.totalCostLimit = 200 * 1024 * 1024
+    }
+
+    func image(for albumId: String) -> PlatformImage? {
+        cache.object(forKey: albumId as NSString)?.image
+    }
+
+    func setImage(_ image: PlatformImage, for albumId: String) {
+        let cost = imageCost(image)
+        cache.setObject(PlatformImageWrapper(image), forKey: albumId as NSString, cost: cost)
+    }
+
+    private func imageCost(_ image: PlatformImage) -> Int {
+        #if canImport(UIKit)
+        guard let cgImage = image.cgImage else { return 0 }
+        return cgImage.bytesPerRow * cgImage.height
+        #elseif canImport(AppKit)
+        guard let tiffRep = image.tiffRepresentation, let bitmap = NSBitmapImageRep(data: tiffRep) else { return 0 }
+        return bitmap.bytesPerRow * bitmap.pixelsHigh
+        #endif
+    }
+}
+
+final class PlatformImageWrapper: NSObject {
+    let image: PlatformImage
+    init(_ image: PlatformImage) { self.image = image }
+}
 
 struct ArtworkView: View {
     let mediaClient: MediaClient?
@@ -35,11 +73,18 @@ struct ArtworkView: View {
     }
 
     private func loadArtwork() async {
-        await MainActor.run {
-            artworkImage = nil
-        }
+        artworkImage = nil
 
         guard let mediaClient, let albumId else {
+            return
+        }
+
+        if let cached = ArtworkCache.shared.image(for: albumId) {
+            #if canImport(UIKit)
+            artworkImage = Image(uiImage: cached)
+            #elseif canImport(AppKit)
+            artworkImage = Image(nsImage: cached)
+            #endif
             return
         }
 
@@ -48,15 +93,13 @@ struct ArtworkView: View {
 
             #if canImport(UIKit)
             if let platformImage = UIImage(data: data) {
-                await MainActor.run {
-                    artworkImage = Image(uiImage: platformImage)
-                }
+                ArtworkCache.shared.setImage(platformImage, for: albumId)
+                artworkImage = Image(uiImage: platformImage)
             }
             #elseif canImport(AppKit)
             if let platformImage = NSImage(data: data) {
-                await MainActor.run {
-                    artworkImage = Image(nsImage: platformImage)
-                }
+                ArtworkCache.shared.setImage(platformImage, for: albumId)
+                artworkImage = Image(nsImage: platformImage)
             }
             #endif
         } catch {

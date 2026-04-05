@@ -7,6 +7,7 @@ struct NowPlayingBar: View {
     @State private var isShowingNowPlaying = false
     @State private var seekPosition: Double = 0
     @State private var isSeeking = false
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     private var client: KanadeClient? { appState.client }
     private var playbackState: PlaybackState? { client?.state }
@@ -81,7 +82,65 @@ struct NowPlayingBar: View {
         }
     }
 
+    private var isCompact: Bool {
+        #if os(iOS)
+        return true
+        #else
+        return horizontalSizeClass == .compact
+        #endif
+    }
+
     private func barContent(currentTrack: Track) -> some View {
+        Group {
+            if isCompact {
+                compactContent(currentTrack: currentTrack)
+            } else {
+                fullContent(currentTrack: currentTrack)
+            }
+        }
+        .background(.ultraThinMaterial)
+        .contentShape(Rectangle())
+        .overlay(alignment: .top) {
+            Rectangle()
+                .fill(Color.primary.opacity(0.08))
+                .frame(height: 1)
+        }
+    }
+
+    private func compactContent(currentTrack: Track) -> some View {
+        HStack(spacing: 12) {
+            ArtworkView(mediaClient: appState.mediaClient, albumId: currentTrack.albumId)
+                .frame(width: 40, height: 40)
+                .clipShape(RoundedRectangle(cornerRadius: 4))
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(currentTrack.title ?? "Untitled")
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(1)
+
+                Text(currentTrack.artist ?? "Unknown Artist")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+
+            Spacer()
+
+            Button {
+                togglePlayback()
+            } label: {
+                Image(systemName: isPlaying ? "pause.fill" : "play.fill")
+                    .font(.callout)
+                    .frame(width: 32, height: 32)
+                    .background(.regularMaterial, in: Circle())
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+    }
+
+    private func fullContent(currentTrack: Track) -> some View {
         HStack(spacing: 16) {
             leftColumn(currentTrack: currentTrack)
             centerColumn
@@ -90,13 +149,6 @@ struct NowPlayingBar: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 8)
         .frame(height: 96)
-        .background(.ultraThinMaterial)
-        .contentShape(Rectangle())
-        .overlay(alignment: .top) {
-            Rectangle()
-                .fill(Color.primary.opacity(0.08))
-                .frame(height: 1)
-        }
     }
 
     private func leftColumn(currentTrack: Track) -> some View {
