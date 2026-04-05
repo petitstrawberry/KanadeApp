@@ -1,22 +1,18 @@
 import SwiftUI
 import KanadeKit
-#if canImport(AppKit)
-import AppKit
-#endif
 
 struct LibraryView: View {
     @Environment(AppState.self) private var appState
 
+    @State private var selectedAlbum: Album?
     @State private var albums: [Album] = []
     @State private var artists: [String] = []
     @State private var genres: [String] = []
     @State private var isLoading = false
     @State private var errorMessage: String?
     @State private var cardMinWidth: CGFloat = 150
-
-    #if canImport(AppKit)
-    @State private var magnifyMonitor: Any?
-    #endif
+    @GestureState private var magnification: CGFloat = 1
+    @GestureState private var isPinching = false
 
     var body: some View {
         Group {
@@ -30,43 +26,13 @@ struct LibraryView: View {
             }
         }
         .navigationTitle("Library")
-        .navigationDestination(for: Album.self) { album in
+        .navigationDestination(item: $selectedAlbum) { album in
             AlbumDetailView(album: album)
         }
         .task {
             await loadLibrary()
         }
-        .onAppear {
-            #if canImport(AppKit)
-            startMagnifyMonitor()
-            #endif
-        }
-        .onDisappear {
-            #if canImport(AppKit)
-            stopMagnifyMonitor()
-            #endif
-        }
     }
-
-    #if canImport(AppKit)
-    private func startMagnifyMonitor() {
-        magnifyMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [self] event in
-            let mag = event.magnification
-            if abs(mag) > 0.001 {
-                let proposed = cardMinWidth * (1 + mag * 2)
-                cardMinWidth = min(max(proposed, 120), 300)
-            }
-            return event
-        }
-    }
-
-    private func stopMagnifyMonitor() {
-        if let monitor = magnifyMonitor {
-            NSEvent.removeMonitor(monitor)
-            magnifyMonitor = nil
-        }
-    }
-    #endif
 
     @ViewBuilder
     private var libraryContent: some View {
@@ -75,10 +41,13 @@ struct LibraryView: View {
                 librarySection("Albums") {
                     LazyVGrid(columns: albumColumns, spacing: 16) {
                         ForEach(albums) { album in
-                            NavigationLink(value: album) {
-                                AlbumCard(album: album, client: appState.client, mediaClient: appState.mediaClient)
-                            }
-                            .buttonStyle(.plain)
+                            AlbumTile(
+                                album: album,
+                                client: appState.client,
+                                mediaClient: appState.mediaClient,
+                                isInteractionEnabled: !isPinching,
+                                openAlbum: { selectedAlbum = album }
+                            )
                         }
                     }
                 }
@@ -106,10 +75,32 @@ struct LibraryView: View {
             }
             .padding()
         }
+        .simultaneousGesture(magnifyGesture)
     }
 
     private var albumColumns: [GridItem] {
-        [GridItem(.adaptive(minimum: cardMinWidth, maximum: 300), spacing: 16)]
+        [GridItem(.adaptive(minimum: effectiveCardMinWidth, maximum: 300), spacing: 16)]
+    }
+
+    private var effectiveCardMinWidth: CGFloat {
+        clampedCardWidth(cardMinWidth * magnification)
+    }
+
+    private var magnifyGesture: some Gesture {
+        MagnifyGesture()
+            .updating($isPinching) { _, state, _ in
+                state = true
+            }
+            .updating($magnification) { value, state, _ in
+                state = value.magnification
+            }
+            .onEnded { value in
+                cardMinWidth = clampedCardWidth(cardMinWidth * value.magnification)
+            }
+    }
+
+    private func clampedCardWidth(_ width: CGFloat) -> CGFloat {
+        min(max(width, 120), 300)
     }
 
     @ViewBuilder
@@ -148,70 +139,83 @@ struct LibraryView: View {
     }
 }
 
-private struct AlbumCard: View {
+private struct AlbumTile: View {
     let album: Album
     let client: KanadeClient?
     let mediaClient: MediaClient?
+    let isInteractionEnabled: Bool
+    let openAlbum: () -> Void
 
     @State private var isHovered = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            artworkSection
+            ZStack {
+                ArtworkView(mediaClient: mediaClient, albumId: album.id)
+                    .aspectRatio(1, contentMode: .fit)
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                    .contentShape(RoundedRectangle(cornerRadius: 12))
+                    .onTapGesture {
+                        guard isInteractionEnabled else { return }
+                        openAlbum()
+                    }
+
+                if isHovered {
+                    artworkActions
+                }
+            }
 
             Text(album.title ?? "Untitled")
                 .font(.subheadline.weight(.medium))
                 .foregroundStyle(.primary)
                 .lineLimit(2)
                 .multilineTextAlignment(.leading)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    guard isInteractionEnabled else { return }
+                    openAlbum()
+                }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .contentShape(Rectangle())
         .onHover { hovering in
             isHovered = hovering
         }
+        .animation(.easeInOut(duration: 0.2), value: isHovered)
     }
 
-    private var artworkSection: some View {
-        ArtworkView(mediaClient: mediaClient, albumId: album.id)
-            .aspectRatio(1, contentMode: .fit)
-            .clipShape(RoundedRectangle(cornerRadius: 12))
-            .overlay {
-                if isHovered {
-                    RoundedRectangle(cornerRadius: 12)
-                        .fill(.black.opacity(0.5))
-                        .transition(.opacity)
-                }
-            }
-            .overlay {
-                if isHovered {
-                    HStack(spacing: 8) {
-                        Button {
-                            addAlbumToQueue()
-                        } label: {
-                            Image(systemName: "plus")
-                                .font(.system(size: 16, weight: .bold))
-                                .foregroundStyle(.white)
-                                .frame(width: 40, height: 40)
-                                .background(.white.opacity(0.2), in: Circle())
-                        }
-                        .buttonStyle(.plain)
+    private var artworkActions: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 12)
+                .fill(.black.opacity(0.5))
+                .allowsHitTesting(false)
 
-                        Button {
-                            playAlbum()
-                        } label: {
-                            Image(systemName: "play.fill")
-                                .font(.system(size: 18, weight: .bold))
-                                .foregroundStyle(.white)
-                                .frame(width: 48, height: 48)
-                                .background(Color.accentColor, in: Circle())
-                        }
-                        .buttonStyle(.plain)
-                    }
-                    .transition(.opacity)
+            HStack(spacing: 8) {
+                Button {
+                    addAlbumToQueue()
+                } label: {
+                    Image(systemName: "plus")
+                        .font(.system(size: 16, weight: .bold))
+                        .foregroundStyle(.white)
+                        .frame(width: 40, height: 40)
+                        .background(.white.opacity(0.2), in: Circle())
                 }
+                .buttonStyle(.plain)
+
+                Button {
+                    playAlbum()
+                } label: {
+                    Image(systemName: "play.fill")
+                        .font(.system(size: 18, weight: .bold))
+                        .foregroundStyle(.white)
+                        .frame(width: 48, height: 48)
+                        .background(Color.accentColor, in: Circle())
+                }
+                .buttonStyle(.plain)
             }
-            .animation(.easeInOut(duration: 0.2), value: isHovered)
+        }
+        .aspectRatio(1, contentMode: .fit)
+        .transition(.opacity)
     }
 
     private func addAlbumToQueue() {

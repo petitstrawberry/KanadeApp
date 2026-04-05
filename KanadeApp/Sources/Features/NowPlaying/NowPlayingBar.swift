@@ -7,7 +7,6 @@ struct NowPlayingBar: View {
     @State private var isShowingNowPlaying = false
     @State private var seekPosition: Double = 0
     @State private var isSeeking = false
-    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     private var client: KanadeClient? { appState.client }
     private var playbackState: PlaybackState? { client?.state }
@@ -82,23 +81,15 @@ struct NowPlayingBar: View {
         }
     }
 
-    private var isCompact: Bool {
-        #if os(iOS)
-        return true
-        #else
-        return horizontalSizeClass == .compact
-        #endif
-    }
-
     private func barContent(currentTrack: Track) -> some View {
-        Group {
-            if isCompact {
-                compactContent(currentTrack: currentTrack)
-            } else {
-                fullContent(currentTrack: currentTrack)
-            }
+        ViewThatFits(in: .horizontal) {
+            fullContent(currentTrack: currentTrack)
+                .frame(minWidth: 768)
+
+            compactContent(currentTrack: currentTrack)
         }
         .background(.ultraThinMaterial)
+        .background(Color.primary.opacity(0.0001))
         .contentShape(Rectangle())
         .overlay(alignment: .top) {
             Rectangle()
@@ -138,6 +129,8 @@ struct NowPlayingBar: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
+        .frame(maxWidth: .infinity)
+        .frame(height: 60)
     }
 
     private func fullContent(currentTrack: Track) -> some View {
@@ -148,6 +141,7 @@ struct NowPlayingBar: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 8)
+        .frame(maxWidth: .infinity)
         .frame(height: 96)
     }
 

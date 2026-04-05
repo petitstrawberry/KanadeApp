@@ -8,34 +8,41 @@ import AppKit
 typealias PlatformImage = NSImage
 #endif
 
-@MainActor
-final class ArtworkCache {
-    static let shared = ArtworkCache()
-
-    private let cache = NSCache<NSString, PlatformImageWrapper>()
-
-    private init() {
+enum ArtworkCache {
+    static let shared: NSCache<NSString, PlatformImageWrapper> = {
+        let cache = NSCache<NSString, PlatformImageWrapper>()
         cache.countLimit = 200
-        cache.totalCostLimit = 200 * 1024 * 1024
+        return cache
+    }()
+    static var tasks: [String: Task<PlatformImage?, Never>] = [:]
+    static let lock = NSLock()
+
+    static func image(for albumId: String) -> PlatformImage? {
+        shared.object(forKey: albumId as NSString)?.image
     }
 
-    func image(for albumId: String) -> PlatformImage? {
-        cache.object(forKey: albumId as NSString)?.image
+    static func setImage(_ image: PlatformImage, for albumId: String) {
+        shared.setObject(PlatformImageWrapper(image), forKey: albumId as NSString)
     }
 
-    func setImage(_ image: PlatformImage, for albumId: String) {
-        let cost = imageCost(image)
-        cache.setObject(PlatformImageWrapper(image), forKey: albumId as NSString, cost: cost)
+    static func imageTask(
+        for albumId: String,
+        create: () -> Task<PlatformImage?, Never>
+    ) -> Task<PlatformImage?, Never> {
+        lock.lock()
+        defer { lock.unlock() }
+        if let existing = tasks[albumId] {
+            return existing
+        }
+        let task = create()
+        tasks[albumId] = task
+        return task
     }
 
-    private func imageCost(_ image: PlatformImage) -> Int {
-        #if canImport(UIKit)
-        guard let cgImage = image.cgImage else { return 0 }
-        return cgImage.bytesPerRow * cgImage.height
-        #elseif canImport(AppKit)
-        guard let tiffRep = image.tiffRepresentation, let bitmap = NSBitmapImageRep(data: tiffRep) else { return 0 }
-        return bitmap.bytesPerRow * bitmap.pixelsHigh
-        #endif
+    static func clearTask(for albumId: String) {
+        lock.lock()
+        defer { lock.unlock() }
+        tasks[albumId] = nil
     }
 }
 
@@ -58,7 +65,6 @@ struct ArtworkView: View {
                     artworkImage
                         .resizable()
                         .scaledToFill()
-                        .allowsHitTesting(false)
                 } else {
                     Image(systemName: "music.note")
                         .font(.system(size: 28, weight: .medium))
@@ -66,20 +72,18 @@ struct ArtworkView: View {
                 }
             }
             .clipShape(RoundedRectangle(cornerRadius: 8))
-            .allowsHitTesting(false)
             .task(id: albumId) {
                 await loadArtwork()
             }
     }
 
     private func loadArtwork() async {
-        artworkImage = nil
-
         guard let mediaClient, let albumId else {
+            artworkImage = nil
             return
         }
 
-        if let cached = ArtworkCache.shared.image(for: albumId) {
+        if let cached = ArtworkCache.image(for: albumId) {
             #if canImport(UIKit)
             artworkImage = Image(uiImage: cached)
             #elseif canImport(AppKit)
@@ -88,21 +92,31 @@ struct ArtworkView: View {
             return
         }
 
-        do {
-            let data = try await mediaClient.artwork(albumId: albumId)
+        artworkImage = nil
 
-            #if canImport(UIKit)
-            if let platformImage = UIImage(data: data) {
-                ArtworkCache.shared.setImage(platformImage, for: albumId)
-                artworkImage = Image(uiImage: platformImage)
+        let task = ArtworkCache.imageTask(for: albumId) {
+            Task<PlatformImage?, Never> {
+                guard let data = try? await mediaClient.artwork(albumId: albumId) else {
+                    return nil
+                }
+
+                #if canImport(UIKit)
+                return UIImage(data: data)
+                #elseif canImport(AppKit)
+                return NSImage(data: data)
+                #endif
             }
-            #elseif canImport(AppKit)
-            if let platformImage = NSImage(data: data) {
-                ArtworkCache.shared.setImage(platformImage, for: albumId)
-                artworkImage = Image(nsImage: platformImage)
-            }
-            #endif
-        } catch {
         }
+
+        if let platformImage = await task.value {
+            ArtworkCache.setImage(platformImage, for: albumId)
+            #if canImport(UIKit)
+            artworkImage = Image(uiImage: platformImage)
+            #elseif canImport(AppKit)
+            artworkImage = Image(nsImage: platformImage)
+            #endif
+        }
+
+        ArtworkCache.clearTask(for: albumId)
     }
 }
