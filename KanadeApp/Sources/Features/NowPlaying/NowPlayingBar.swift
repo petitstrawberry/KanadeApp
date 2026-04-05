@@ -11,7 +11,6 @@ struct NowPlayingBar: View {
 
     let placement: NowPlayingBarPlacement
 
-    @State private var isShowingNowPlaying = false
     @State private var seekPosition: Double = 0
     @State private var isSeeking = false
     @State private var volumeValue: Double = 0
@@ -75,12 +74,6 @@ struct NowPlayingBar: View {
                 barContent(currentTrack: currentTrack)
             }
         }
-        #if os(macOS)
-        .sheet(isPresented: $isShowingNowPlaying) {
-            NowPlayingView()
-                .frame(minWidth: 520, minHeight: 400)
-        }
-        #endif
         .onAppear {
             syncSeekPosition()
             syncVolumeValue()
@@ -167,11 +160,6 @@ struct NowPlayingBar: View {
         }
         .frame(maxWidth: .infinity)
         .contentShape(Rectangle())
-        #if os(macOS)
-        .onTapGesture {
-            openNowPlaying()
-        }
-        #endif
     }
 
     private func compactInfoCluster(currentTrack: Track) -> some View {
@@ -193,11 +181,6 @@ struct NowPlayingBar: View {
             }
         }
         .contentShape(Rectangle())
-        #if os(macOS)
-        .onTapGesture {
-            openNowPlaying()
-        }
-        #endif
     }
 
     private var centerColumn: some View {
@@ -422,12 +405,6 @@ struct NowPlayingBar: View {
         } else {
             client?.play()
         }
-    }
-
-    private func openNowPlaying() {
-        #if os(macOS)
-        isShowingNowPlaying = true
-        #endif
     }
 
     private func syncSeekPosition() {

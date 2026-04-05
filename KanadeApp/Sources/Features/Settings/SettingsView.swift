@@ -18,24 +18,35 @@ struct SettingsView: View {
                     }
                 }
 
+                #if os(iOS)
+                LabeledContent("Server Address") {
+                    TextField("127.0.0.1", text: $appState.serverAddress)
+                        .multilineTextAlignment(.trailing)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                }
+
+                LabeledContent("WebSocket Port") {
+                    TextField("8080", value: $appState.wsPort, format: .number.grouping(.never))
+                        .multilineTextAlignment(.trailing)
+                        .keyboardType(.numberPad)
+                }
+
+                LabeledContent("HTTP Port") {
+                    TextField("8081", value: $appState.httpPort, format: .number.grouping(.never))
+                        .multilineTextAlignment(.trailing)
+                        .keyboardType(.numberPad)
+                }
+                #else
                 TextField("Server Address", text: $appState.serverAddress)
                     .multilineTextAlignment(.trailing)
-                    #if os(iOS)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                    #endif
 
                 TextField("WebSocket Port", value: $appState.wsPort, format: .number.grouping(.never))
                     .multilineTextAlignment(.trailing)
-                    #if os(iOS)
-                    .keyboardType(.numberPad)
-                    #endif
 
                 TextField("HTTP Port", value: $appState.httpPort, format: .number.grouping(.never))
                     .multilineTextAlignment(.trailing)
-                    #if os(iOS)
-                    .keyboardType(.numberPad)
-                    #endif
+                #endif
 
                 Toggle("Auto-connect on Launch", isOn: $appState.autoConnectOnLaunch)
 
