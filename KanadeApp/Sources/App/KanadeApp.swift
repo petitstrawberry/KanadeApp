@@ -8,6 +8,9 @@ struct KanadeApp: App {
         WindowGroup {
             ContentView()
                 .environment(appState)
+                .task {
+                    appState.startupConnectIfNeeded()
+                }
         }
     }
 }

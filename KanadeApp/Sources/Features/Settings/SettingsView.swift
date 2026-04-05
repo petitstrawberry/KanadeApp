@@ -11,9 +11,9 @@ struct SettingsView: View {
                 LabeledContent("Status") {
                     HStack(spacing: 8) {
                         Circle()
-                            .fill(appState.isConnected ? Color.green : Color.red)
+                            .fill(appState.isConnected ? Color.green : (appState.isRetryingConnection ? Color.orange : Color.red))
                             .frame(width: 10, height: 10)
-                        Text(appState.isConnected ? "Connected" : "Disconnected")
+                        Text(appState.connectionStatusText)
                             .foregroundStyle(.secondary)
                     }
                 }
@@ -43,7 +43,9 @@ struct SettingsView: View {
                         #endif
                 }
 
-                Button(appState.isConnected ? "Disconnect" : "Connect") {
+                Toggle("Auto-connect on Launch", isOn: $appState.autoConnectOnLaunch)
+
+                Button(appState.isConnected ? "Disconnect" : (appState.hasSavedConnectionSettings ? "Connect / Retry" : "Connect")) {
                     if appState.isConnected {
                         appState.disconnect()
                     } else {

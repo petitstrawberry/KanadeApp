@@ -58,7 +58,7 @@ struct ContentView: View {
             }
         }
         .tabViewBottomAccessory {
-            if appState.client?.state?.queue.isEmpty == false {
+            if appState.shouldShowMiniPlayer {
                 NowPlayingBar(placement: .iosAccessory)
             }
         }
@@ -87,7 +87,7 @@ struct ContentView: View {
                 detailView
             }
             .safeAreaInset(edge: .bottom, spacing: 0) {
-                if appState.client?.state?.queue.isEmpty == false {
+                if appState.shouldShowMiniPlayer {
                     HStack {
                         Spacer(minLength: 0)
                         NowPlayingBar(placement: .macFloating)
@@ -132,9 +132,15 @@ struct ConnectionPrompt: View {
                 .foregroundStyle(.secondary)
             Text("Connect to Kanade Server")
                 .font(.title2.bold())
-            Text("Enter your server address in Settings to get started")
+            Text(appState.hasSavedConnectionSettings ? "Reconnect to your saved Kanade server or update the connection settings." : "Enter your server address in Settings to get started")
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
+            if appState.hasSavedConnectionSettings {
+                Button("Retry Connection") {
+                    appState.retryConnection()
+                }
+                .buttonStyle(.bordered)
+            }
             Button("Open Settings") {
                 showSettings = true
             }
