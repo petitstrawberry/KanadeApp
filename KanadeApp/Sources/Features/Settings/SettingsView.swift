@@ -18,30 +18,24 @@ struct SettingsView: View {
                     }
                 }
 
-                LabeledContent("Server Address") {
-                    TextField("127.0.0.1", text: $appState.serverAddress)
-                        .multilineTextAlignment(.trailing)
-                        #if os(iOS)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                        #endif
-                }
+                TextField("Server Address", text: $appState.serverAddress)
+                    .multilineTextAlignment(.trailing)
+                    #if os(iOS)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    #endif
 
-                LabeledContent("WebSocket Port") {
-                    TextField("8080", value: $appState.wsPort, format: .number)
-                        .multilineTextAlignment(.trailing)
-                        #if os(iOS)
-                        .keyboardType(.numberPad)
-                        #endif
-                }
+                TextField("WebSocket Port", value: $appState.wsPort, format: .number.grouping(.never))
+                    .multilineTextAlignment(.trailing)
+                    #if os(iOS)
+                    .keyboardType(.numberPad)
+                    #endif
 
-                LabeledContent("HTTP Port") {
-                    TextField("8081", value: $appState.httpPort, format: .number)
-                        .multilineTextAlignment(.trailing)
-                        #if os(iOS)
-                        .keyboardType(.numberPad)
-                        #endif
-                }
+                TextField("HTTP Port", value: $appState.httpPort, format: .number.grouping(.never))
+                    .multilineTextAlignment(.trailing)
+                    #if os(iOS)
+                    .keyboardType(.numberPad)
+                    #endif
 
                 Toggle("Auto-connect on Launch", isOn: $appState.autoConnectOnLaunch)
 

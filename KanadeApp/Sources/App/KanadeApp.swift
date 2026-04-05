@@ -12,5 +12,11 @@ struct KanadeApp: App {
                     appState.startupConnectIfNeeded()
                 }
         }
+        #if os(macOS)
+        Settings {
+            SettingsView()
+                .environment(appState)
+        }
+        #endif
     }
 }
