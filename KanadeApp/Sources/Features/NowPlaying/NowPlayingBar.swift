@@ -103,7 +103,7 @@ struct NowPlayingBar: View {
     private func barContent(currentTrack: Track) -> some View {
         ViewThatFits(in: .horizontal) {
             fullContent(currentTrack: currentTrack)
-                .frame(minWidth: 768)
+                .frame(minWidth: placement == .iosAccessory ? 10_000 : 768)
 
             compactContent(currentTrack: currentTrack)
         }
@@ -462,18 +462,24 @@ private struct PlacementBackgroundModifier: ViewModifier {
 
 private struct MacFloatingBarBackground: View {
     var body: some View {
-        if #available(macOS 26.0, *) {
-            Color.clear
-                .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-                .shadow(color: .black.opacity(0.06), radius: 10, y: 3)
-        } else {
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(.regularMaterial)
-                .overlay {
-                    RoundedRectangle(cornerRadius: 18, style: .continuous)
-                        .strokeBorder(.quaternary.opacity(0.5), lineWidth: 0.5)
-                }
-                .shadow(color: .black.opacity(0.06), radius: 10, y: 3)
+        VStack(spacing: 0) {
+            Rectangle()
+                .fill(.quaternary.opacity(0.7))
+                .frame(height: 0.5)
+
+            if #available(macOS 26.0, *) {
+                Color.clear
+                    .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            } else {
+                Rectangle()
+                    .fill(.regularMaterial)
+            }
         }
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .strokeBorder(.quaternary.opacity(0.35), lineWidth: 0.5)
+        }
+        .shadow(color: .black.opacity(0.03), radius: 6, y: 2)
     }
 }

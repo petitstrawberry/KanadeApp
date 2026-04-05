@@ -55,16 +55,33 @@ struct ArtworkView: View {
     let mediaClient: MediaClient?
     let albumId: String?
 
-    @State private var artworkImage: Image?
+    @State private var artworkImage: PlatformImage?
+    @State private var loadedAlbumId: String?
+
+    private var displayedArtworkImage: PlatformImage? {
+        if let artworkImage {
+            return artworkImage
+        }
+
+        guard let albumId else {
+            return nil
+        }
+
+        return ArtworkCache.image(for: albumId)
+    }
+
+    private var taskKey: String {
+        let clientKey = mediaClient.map { String(ObjectIdentifier($0).hashValue) } ?? "nil"
+        let albumKey = albumId ?? "nil"
+        return "\(clientKey):\(albumKey)"
+    }
 
     var body: some View {
         Rectangle()
             .fill(.quaternary)
             .overlay {
-                if let artworkImage {
-                    artworkImage
-                        .resizable()
-                        .scaledToFill()
+                if let displayedArtworkImage {
+                    renderedArtworkImage(displayedArtworkImage)
                 } else {
                     Image(systemName: "music.note")
                         .font(.system(size: 28, weight: .medium))
@@ -72,30 +89,36 @@ struct ArtworkView: View {
                 }
             }
             .clipShape(RoundedRectangle(cornerRadius: 8))
-            .task(id: albumId) {
+            .task(id: taskKey) {
                 await loadArtwork()
             }
     }
 
     private func loadArtwork() async {
         guard let mediaClient, let albumId else {
-            artworkImage = nil
+            await MainActor.run {
+                artworkImage = nil
+                loadedAlbumId = nil
+            }
             return
         }
 
         if let cached = ArtworkCache.image(for: albumId) {
-            #if canImport(UIKit)
-            artworkImage = Image(uiImage: cached)
-            #elseif canImport(AppKit)
-            artworkImage = Image(nsImage: cached)
-            #endif
+            await MainActor.run {
+                artworkImage = cached
+                loadedAlbumId = albumId
+            }
             return
         }
 
-        artworkImage = nil
+        if loadedAlbumId != albumId {
+            await MainActor.run {
+                artworkImage = nil
+            }
+        }
 
         let task = ArtworkCache.imageTask(for: albumId) {
-            Task<PlatformImage?, Never> {
+            Task.detached(priority: .background) {
                 guard let data = try? await mediaClient.artwork(albumId: albumId) else {
                     return nil
                 }
@@ -110,13 +133,25 @@ struct ArtworkView: View {
 
         if let platformImage = await task.value {
             ArtworkCache.setImage(platformImage, for: albumId)
-            #if canImport(UIKit)
-            artworkImage = Image(uiImage: platformImage)
-            #elseif canImport(AppKit)
-            artworkImage = Image(nsImage: platformImage)
-            #endif
+            await MainActor.run {
+                artworkImage = platformImage
+                loadedAlbumId = albumId
+            }
         }
 
         ArtworkCache.clearTask(for: albumId)
+    }
+
+    @ViewBuilder
+    private func renderedArtworkImage(_ artworkImage: PlatformImage) -> some View {
+        #if canImport(UIKit)
+        Image(uiImage: artworkImage)
+            .resizable()
+            .scaledToFill()
+        #elseif canImport(AppKit)
+        Image(nsImage: artworkImage)
+            .resizable()
+            .scaledToFill()
+        #endif
     }
 }

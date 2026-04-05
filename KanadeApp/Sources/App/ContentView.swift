@@ -85,18 +85,18 @@ struct ContentView: View {
         } detail: {
             NavigationStack {
                 detailView
-                    .safeAreaInset(edge: .bottom, spacing: 0) {
-                        if appState.client?.state?.queue.isEmpty == false {
-                            HStack {
-                                Spacer(minLength: 0)
-                                NowPlayingBar(placement: .macFloating)
-                                    .frame(maxWidth: 860)
-                                Spacer(minLength: 0)
-                            }
-                            .padding(.horizontal, 20)
-                            .padding(.bottom, 12)
-                        }
+            }
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                if appState.client?.state?.queue.isEmpty == false {
+                    HStack {
+                        Spacer(minLength: 0)
+                        NowPlayingBar(placement: .macFloating)
+                            .frame(maxWidth: 900)
+                        Spacer(minLength: 0)
                     }
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 12)
+                }
             }
         }
     }
