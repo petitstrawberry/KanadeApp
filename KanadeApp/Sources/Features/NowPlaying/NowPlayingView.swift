@@ -63,7 +63,8 @@ struct NowPlayingView: View {
                 .fill(Color.secondary.opacity(0.4))
                 .frame(width: 36, height: 5)
                 .padding(.top, 8)
-                .padding(.bottom, 8)
+            .padding(.top, 4)
+            .padding(.bottom, 8)
 
             if let currentTrack {
                 ArtworkView(mediaClient: appState.mediaClient, albumId: currentTrack.albumId)
@@ -88,7 +89,7 @@ struct NowPlayingView: View {
             VStack(spacing: 32) {
                 VStack(spacing: 2) {
                     Text(currentTrack?.title ?? "Nothing Playing")
-                        .font(.title.weight(.bold))
+                        .font(.title3.weight(.bold))
                         .foregroundStyle(.white)
                         .lineLimit(1)
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -230,7 +231,6 @@ struct NowPlayingView: View {
 
             Spacer(minLength: 0)
         }
-        .padding(.top, 8)
         .padding(.bottom, 32)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(backgroundView)
@@ -543,10 +543,11 @@ struct NowPlayingView: View {
             Color.black
             LinearGradient(
                 colors: [
-                    dominantColor.opacity(0.7),
-                    dominantColor.opacity(0.35),
-                    dominantColor.opacity(0.1),
-                    Color.black.opacity(0.9)
+                    dominantColor.opacity(0.9),
+                    dominantColor.opacity(0.65),
+                    dominantColor.opacity(0.45),
+                    dominantColor.opacity(0.3),
+                    dominantColor.opacity(0.2)
                 ],
                 startPoint: .top,
                 endPoint: .bottom
