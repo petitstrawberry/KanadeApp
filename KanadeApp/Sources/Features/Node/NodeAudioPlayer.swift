@@ -387,7 +387,6 @@ final class NodeAudioPlayer: @unchecked Sendable {
 
         do {
             try prepareDecoderIfNeededLocked(at: currentIndex, epoch: rebuildEpoch)
-            try? prefetchNextDecoderLocked(after: currentIndex, epoch: rebuildEpoch)
 
             if startPosition > 0 {
                 _ = player.seek(time: startPosition)
@@ -399,6 +398,7 @@ final class NodeAudioPlayer: @unchecked Sendable {
             if shouldPlay {
                 status = .loading
                 try player.play()
+                try? prefetchNextDecoderLocked(after: currentIndex, epoch: rebuildEpoch)
             } else {
                 status = .stopped
             }
@@ -592,6 +592,9 @@ final class NodeAudioPlayer: @unchecked Sendable {
             case .playing:
                 self.suppressRebuildStoppedCallback = false
                 self.setPlaybackStateLocked(.playing)
+                if let currentIndex = self.currentIndex, let epoch {
+                    try? self.prefetchNextDecoderLocked(after: currentIndex, epoch: epoch)
+                }
             case .paused:
                 self.suppressRebuildStoppedCallback = false
                 self.setPlaybackStateLocked(.paused)

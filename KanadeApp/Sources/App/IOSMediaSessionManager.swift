@@ -16,6 +16,7 @@ final class IOSMediaSessionManager {
     private var artworkTask: Task<Void, Never>?
     private var artworkAlbumId: String?
     private var isRegistered = false
+    private var lastSnapshot: Snapshot?
 
     init() {
         configureAudioSession()
@@ -30,9 +31,22 @@ final class IOSMediaSessionManager {
         self.state = state
 
         let snapshot = Snapshot(state: state)
+        
+        let shouldRefreshNowPlaying: Bool
+        if let last = lastSnapshot {
+            shouldRefreshNowPlaying = !snapshot.isEquivalentForNowPlaying(to: last)
+        } else {
+            shouldRefreshNowPlaying = true
+        }
+        
         updateCommandAvailability(snapshot)
-        refreshNowPlayingInfo()
+        
+        if shouldRefreshNowPlaying {
+            refreshNowPlayingInfo()
+        }
+        
         updateArtworkLoading(for: snapshot.track)
+        lastSnapshot = snapshot
     }
 
     private func registerRemoteCommandsIfNeeded() {
@@ -147,15 +161,17 @@ final class IOSMediaSessionManager {
 
     private func updateArtworkLoading(for track: Track?) {
         let nextAlbumId = track?.albumId
+        
         if artworkAlbumId != nextAlbumId {
             artworkTask?.cancel()
             artworkTask = nil
+            artworkAlbumId = nextAlbumId
         }
-        artworkAlbumId = nextAlbumId
 
         guard let track,
               let albumId = track.albumId,
               ArtworkCache.image(for: albumId) == nil,
+              artworkTask == nil,
               let mediaClient else {
             return
         }
@@ -231,6 +247,31 @@ final class IOSMediaSessionManager {
             case .stopped:
                 return .stopped
             }
+        }
+        
+        func isEquivalentForNowPlaying(to other: Snapshot) -> Bool {
+            if track?.id != other.track?.id {
+                return false
+            }
+            if track?.title != other.track?.title {
+                return false
+            }
+            if track?.artist != other.track?.artist {
+                return false
+            }
+            if track?.albumTitle != other.track?.albumTitle {
+                return false
+            }
+            if track?.durationSecs != other.track?.durationSecs {
+                return false
+            }
+            if status != other.status {
+                return false
+            }
+            if abs(positionSecs - other.positionSecs) > 2.0 {
+                return false
+            }
+            return true
         }
     }
 }
