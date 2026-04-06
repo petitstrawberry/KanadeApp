@@ -5,6 +5,8 @@ let project = Project(
     organizationName: "petitstrawberry",
     packages: [
         .package(path: "KanadeKit"),
+        .package(url: "https://github.com/daltoniam/Starscream.git", from: "4.0.8"),
+        .package(url: "https://github.com/sbooth/SFBAudioEngine.git", from: "0.8.0"),
     ],
     targets: [
         Target(
@@ -28,7 +30,14 @@ let project = Project(
             resources: ["KanadeApp/Resources/**"],
             dependencies: [
                 .package(product: "KanadeKit"),
-            ]
+                .package(product: "Starscream"),
+                .package(product: "SFBAudioEngine"),
+            ],
+            settings: .settings(
+                base: [
+                    "SWIFT_OBJC_BRIDGING_HEADER": "KanadeApp/Sources/KanadeApp-Bridging-Header.h",
+                ]
+            )
         ),
         Target(
             name: "KanadeAppMac",
@@ -48,7 +57,14 @@ let project = Project(
             entitlements: "KanadeApp/Config/KanadeAppMac.entitlements",
             dependencies: [
                 .package(product: "KanadeKit"),
-            ]
+                .package(product: "Starscream"),
+                .package(product: "SFBAudioEngine"),
+            ],
+            settings: .settings(
+                base: [
+                    "SWIFT_OBJC_BRIDGING_HEADER": "KanadeApp/Sources/KanadeApp-Bridging-Header.h",
+                ]
+            )
         ),
         Target(
             name: "KanadeAppTests",

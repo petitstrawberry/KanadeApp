@@ -61,6 +61,30 @@ struct SettingsView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
 
+            Section("Playback Node") {
+                LabeledContent("Status") {
+                    HStack(spacing: 8) {
+                        Circle()
+                            .fill(appState.isNodeConnected ? Color.green : Color.secondary)
+                            .frame(width: 10, height: 10)
+                        Text(appState.isNodeConnected ? "Connected" : "Disconnected")
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                Toggle("Act as Playback Node", isOn: $appState.nodeEnabled)
+
+                #if os(iOS)
+                LabeledContent("Node Name") {
+                    TextField("Living Room", text: $appState.nodeName)
+                        .multilineTextAlignment(.trailing)
+                }
+                #else
+                TextField("Node Name", text: $appState.nodeName)
+                    .multilineTextAlignment(.trailing)
+                #endif
+            }
+
             Section("About") {
                 LabeledContent("App") {
                     Text("Kanade")
