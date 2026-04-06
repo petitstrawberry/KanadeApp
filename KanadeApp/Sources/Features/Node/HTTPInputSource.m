@@ -1,6 +1,8 @@
 #import "HTTPInputSource.h"
 
-#import <objc/message.h>
+@interface SFBInputSource ()
+- (instancetype)initWithURL:(nullable NSURL *)url;
+@end
 
 @interface HTTPInputSource () <NSURLSessionDataDelegate>
 @end
@@ -26,12 +28,7 @@
 }
 
 - (instancetype)initWithURL:(NSURL *)url mimeTypeHint:(NSString *)mimeTypeHint {
-    struct objc_super superInfo = {
-        .receiver = self,
-        .super_class = [SFBInputSource class],
-    };
-    id (*sendSuperInit)(struct objc_super *, SEL) = (id (*)(struct objc_super *, SEL))objc_msgSendSuper;
-    self = sendSuperInit(&superInfo, @selector(init));
+    self = [super initWithURL:url];
     if(self) {
         _url = [url copy];
         _mimeTypeHint = [mimeTypeHint copy];

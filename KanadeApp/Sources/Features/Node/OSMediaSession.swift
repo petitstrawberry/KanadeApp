@@ -201,9 +201,7 @@ final class MacOSMediaSession: OSMediaSession, @unchecked Sendable {
 
 enum OSMediaSessionFactory {
     static func create() -> (any OSMediaSession)? {
-        #if os(iOS)
-        return IOSMediaSession()
-        #elseif os(macOS)
+        #if os(macOS)
         if #available(macOS 10.12.2, *) {
             return MacOSMediaSession()
         }

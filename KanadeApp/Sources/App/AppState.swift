@@ -6,6 +6,7 @@ import UIKit
 import Foundation
 #endif
 
+@MainActor
 @Observable
 final class AppState {
     @ObservationIgnored private static let serverAddressKey = "kanade.serverAddress"
@@ -153,8 +154,9 @@ final class AppState {
         guard nodeEnabled else { return }
 
         let wsURL = URL(string: "ws://\(serverAddress):\(wsPort)")!
-        let client = NodeClient(url: wsURL) { [weak self] in
-            self?.nodeName ?? Self.defaultNodeName
+        let nodeName = self.nodeName
+        let client = NodeClient(url: wsURL) {
+            nodeName
         }
         client.connectionChanged = { [weak self] connected in
             Task { @MainActor [weak self] in
@@ -209,15 +211,21 @@ final class AppState {
 }
 
 extension AppState: KanadeClientDelegate {
-    func clientDidConnect(_ client: KanadeClient) {
-        updateIOSMediaSession()
+    nonisolated func clientDidConnect(_ client: KanadeClient) {
+        Task { @MainActor [weak self] in
+            self?.updateIOSMediaSession()
+        }
     }
 
-    func clientDidDisconnect(_ client: KanadeClient, error: (any Error)?) {
-        updateIOSMediaSession()
+    nonisolated func clientDidDisconnect(_ client: KanadeClient, error: (any Error)?) {
+        Task { @MainActor [weak self] in
+            self?.updateIOSMediaSession()
+        }
     }
 
-    func client(_ client: KanadeClient, didUpdateState state: PlaybackState) {
-        updateIOSMediaSession()
+    nonisolated func client(_ client: KanadeClient, didUpdateState state: PlaybackState) {
+        Task { @MainActor [weak self] in
+            self?.updateIOSMediaSession()
+        }
     }
 }

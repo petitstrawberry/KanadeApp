@@ -571,10 +571,8 @@ final class NodeAudioPlayer: @unchecked Sendable {
             return
         }
         
-        let currentItem = items[currentIndex]
-        let trackID = currentItem.trackID
         let position = currentPositionLocked()
-        
+
         mediaSession.updateNowPlaying(
             title: "Track \(currentIndex + 1)",
             artist: nil,
