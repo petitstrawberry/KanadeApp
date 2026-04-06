@@ -10,6 +10,7 @@ struct NowPlayingView: View {
     @State private var volumeValue: Double = 0
     @State private var isSeeking = false
     @State private var isAdjustingVolume = false
+    @State private var dominantColor: Color = .clear
 
     private var client: KanadeClient? { appState.client }
     private var playbackState: PlaybackState? { client?.state }
@@ -120,6 +121,7 @@ struct NowPlayingView: View {
                             }
                         }
                     )
+                    .tint(dominantColor)
                     .disabled(currentTrack == nil)
 
                     HStack {
@@ -162,8 +164,8 @@ struct NowPlayingView: View {
                     Button {
                         togglePlayback()
                     } label: {
-                        Image(systemName: isPlaying ? "pause.circle.fill" : "play.circle.fill")
-                            .font(.system(size: 64))
+                        Image(systemName: isPlaying ? "pause.fill" : "play.fill")
+                            .font(.system(size: 50))
                             .foregroundStyle(.white)
                     }
                     .buttonStyle(.plain)
@@ -217,6 +219,7 @@ struct NowPlayingView: View {
                             }
                         }
                     )
+                    .tint(dominantColor)
 
                     Image(systemName: "speaker.wave.3.fill")
                         .font(.caption)
@@ -234,9 +237,13 @@ struct NowPlayingView: View {
         .onAppear {
             syncSeekPosition()
             syncVolumeValue()
+            updateDominantColor()
         }
         .onChange(of: currentTrack?.id) {
             syncSeekPosition()
+        }
+        .onChange(of: currentTrack?.albumId) {
+            updateDominantColor()
         }
         .onChange(of: currentPosition) {
             if !isSeeking {
@@ -484,21 +491,69 @@ struct NowPlayingView: View {
         }
     }
 
+    #if os(iOS)
+    private func updateDominantColor() {
+        guard let albumId = currentTrack?.albumId else {
+            dominantColor = .clear
+            return
+        }
+        guard let cached = ArtworkCache.image(for: albumId) else { return }
+        extractColor(from: cached)
+    }
+
+    private func extractColor(from image: UIImage) {
+        Task.detached(priority: .userInitiated) {
+            guard let cgImage = image.cgImage else { return }
+            let width = 1
+            let height = 1
+            let bytesPerRow = 4
+            var pixelData = [UInt8](repeating: 0, count: bytesPerRow * height)
+            guard let context = CGContext(
+                data: &pixelData,
+                width: width,
+                height: height,
+                bitsPerComponent: 8,
+                bytesPerRow: bytesPerRow,
+                space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue
+            ) else { return }
+            let rect = CGRect(x: 0, y: 0, width: width, height: height)
+            context.draw(cgImage, in: rect)
+
+            let r = Double(pixelData[0]) / 255.0
+            let g = Double(pixelData[1]) / 255.0
+            let b = Double(pixelData[2]) / 255.0
+
+            let factor: Double = 0.55
+            let gray = 0.299 * r + 0.587 * g + 0.114 * b
+            let dr = r * factor + gray * (1 - factor)
+            let dg = g * factor + gray * (1 - factor)
+            let db = b * factor + gray * (1 - factor)
+
+            Task { @MainActor in
+                dominantColor = Color(red: dr, green: dg, blue: db)
+            }
+        }
+    }
+    #endif
+
     private var backgroundView: some View {
         #if os(iOS)
         ZStack {
-            Color.black.opacity(0.85)
+            Color.black
             LinearGradient(
                 colors: [
-                    Color.accentColor.opacity(0.20),
-                    Color.accentColor.opacity(0.05),
-                    Color.clear
+                    dominantColor.opacity(0.7),
+                    dominantColor.opacity(0.35),
+                    dominantColor.opacity(0.1),
+                    Color.black.opacity(0.9)
                 ],
                 startPoint: .top,
                 endPoint: .bottom
             )
         }
         .ignoresSafeArea()
+        .animation(.easeInOut(duration: 0.8), value: dominantColor)
         #else
         LinearGradient(
             colors: [
