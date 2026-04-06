@@ -24,6 +24,9 @@ let project = Project(
                     "NSAppTransportSecurity": [
                         "NSAllowsLocalNetworking": true,
                     ],
+                    "UIBackgroundModes": [
+                        "audio",
+                    ],
                 ]
             ),
             sources: ["KanadeApp/Sources/**"],

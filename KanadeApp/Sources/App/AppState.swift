@@ -18,6 +18,9 @@ final class AppState {
     @ObservationIgnored private let defaults = UserDefaults.standard
     @ObservationIgnored private var didAttemptStartupConnect = false
     @ObservationIgnored private var nodeClient: NodeClient?
+    #if os(iOS)
+    @ObservationIgnored private var mediaSessionManager: IOSMediaSessionManager?
+    #endif
 
     var client: KanadeClient?
     var mediaClient: MediaClient?
@@ -96,13 +99,16 @@ final class AppState {
         return true
     }
 
-    init() {
+    @MainActor init() {
         serverAddress = defaults.string(forKey: Self.serverAddressKey) ?? "127.0.0.1"
         wsPort = defaults.object(forKey: Self.wsPortKey) as? Int ?? 8080
         httpPort = defaults.object(forKey: Self.httpPortKey) as? Int ?? 8081
         autoConnectOnLaunch = defaults.object(forKey: Self.autoConnectKey) as? Bool ?? true
         nodeEnabled = defaults.object(forKey: Self.nodeEnabledKey) as? Bool ?? false
         nodeName = defaults.string(forKey: Self.nodeNameKey) ?? Self.defaultNodeName
+        #if os(iOS)
+        mediaSessionManager = IOSMediaSessionManager()
+        #endif
         if nodeEnabled {
             startNode()
         }
@@ -124,9 +130,11 @@ final class AppState {
             url: wsURL,
             reconnectPolicy: ReconnectPolicy(initialDelay: 2.0, maxDelay: 10.0, base: 2.0)
         )
-        newClient.connect()
+        newClient.delegate = self
         client = newClient
         mediaClient = MediaClient(baseURL: httpURL)
+        updateIOSMediaSession()
+        newClient.connect()
     }
 
     func retryConnection() {
@@ -137,6 +145,7 @@ final class AppState {
         client?.disconnect()
         client = nil
         mediaClient = nil
+        updateIOSMediaSession()
     }
 
     func startNode() {
@@ -177,6 +186,17 @@ final class AppState {
         startNode()
     }
 
+    private func updateIOSMediaSession() {
+        #if os(iOS)
+        let client = client
+        let mediaClient = mediaClient
+        let state = client?.state
+        Task { @MainActor [weak self] in
+            self?.mediaSessionManager?.update(client: client, mediaClient: mediaClient, state: state)
+        }
+        #endif
+    }
+
     private static var defaultNodeName: String {
         #if os(iOS)
         UIDevice.current.name
@@ -185,5 +205,19 @@ final class AppState {
         #else
         ProcessInfo.processInfo.hostName
         #endif
+    }
+}
+
+extension AppState: KanadeClientDelegate {
+    func clientDidConnect(_ client: KanadeClient) {
+        updateIOSMediaSession()
+    }
+
+    func clientDidDisconnect(_ client: KanadeClient, error: (any Error)?) {
+        updateIOSMediaSession()
+    }
+
+    func client(_ client: KanadeClient, didUpdateState state: PlaybackState) {
+        updateIOSMediaSession()
     }
 }

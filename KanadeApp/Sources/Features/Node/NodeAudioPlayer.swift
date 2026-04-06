@@ -33,6 +33,7 @@ final class NodeAudioPlayer: @unchecked Sendable {
     private var delegateProxy: DelegateProxy
     private let clock = ContinuousClock()
     private var downloadedTempURLs: Set<URL> = []
+    private let mediaSession: (any OSMediaSession)?
 
     private var items: [QueueItem] = []
     private var currentIndex: Int?
@@ -50,11 +51,31 @@ final class NodeAudioPlayer: @unchecked Sendable {
     init() {
         player = AudioPlayer()
         delegateProxy = DelegateProxy(epoch: 0)
+        mediaSession = OSMediaSessionFactory.create()
         queue.setSpecific(key: queueKey, value: 1)
         delegateProxy.owner = self
         player.delegate = delegateProxy
         applyVolumeLocked(100)
         configureAudioSession()
+        setupMediaSessionHandlers()
+    }
+    
+    private func setupMediaSessionHandlers() {
+        guard let mediaSession else { return }
+        mediaSession.setCommandHandler(
+            play: { [weak self] in
+                self?.play()
+            },
+            pause: { [weak self] in
+                self?.pause()
+            },
+            stop: { [weak self] in
+                self?.stop()
+            },
+            seek: { [weak self] position in
+                self?.seek(to: position)
+            }
+        )
     }
 
     private func configureAudioSession() {
@@ -172,30 +193,41 @@ final class NodeAudioPlayer: @unchecked Sendable {
     func add(_ items: [QueueItem]) {
         queue.async { [weak self] in
             guard let self else { return }
-            let previousCurrentTrackID = self.currentIndex.flatMap { self.items.indices.contains($0) ? self.items[$0].trackID : nil }
             let previousStatus = self.status
-            let previousPosition = self.currentPositionLocked()
+            let currentIndex = self.currentIndex
+            let appendStartIndex = self.items.endIndex
             self.items.append(contentsOf: items)
             if self.currentIndex == nil, !self.items.isEmpty {
                 self.currentIndex = 0
             }
-            let shouldPreservePosition = previousCurrentTrackID != nil && previousCurrentTrackID == self.currentIndex.flatMap { self.items[$0].trackID }
             do {
-                if previousStatus == .playing {
-                    try self.rebuildQueueLocked(
-                        startPosition: shouldPreservePosition ? previousPosition : 0,
-                        shouldPlay: true
-                    )
+                if previousStatus == .playing,
+                   let currentIndex,
+                   appendStartIndex > currentIndex {
+                    let epoch = self.playbackEpoch
+                    if self.preparedDecoderIndices.count < 2 {
+                        try? self.prefetchNextDecoderLocked(after: currentIndex, epoch: epoch)
+                    }
                 } else {
-                    self.requiresQueuePreparation = self.currentIndex != nil
-                    self.resetPlayerForQueueMutationLocked()
-                    self.status = .stopped
-                }
-                if previousStatus == .paused, shouldPreservePosition {
-                    self.status = .paused
-                    self.positionAnchor = previousPosition
-                    self.positionTimestamp = nil
-                    self.suppressRebuildStoppedCallback = true
+                    let previousCurrentTrackID = currentIndex.flatMap { self.items.indices.contains($0) ? self.items[$0].trackID : nil }
+                    let previousPosition = self.currentPositionLocked()
+                    let shouldPreservePosition = previousCurrentTrackID != nil && previousCurrentTrackID == self.currentIndex.flatMap { self.items[$0].trackID }
+                    if previousStatus == .playing {
+                        try self.rebuildQueueLocked(
+                            startPosition: shouldPreservePosition ? previousPosition : 0,
+                            shouldPlay: true
+                        )
+                    } else {
+                        self.requiresQueuePreparation = self.currentIndex != nil
+                        self.resetPlayerForQueueMutationLocked()
+                        self.status = .stopped
+                    }
+                    if previousStatus == .paused, shouldPreservePosition {
+                        self.status = .paused
+                        self.positionAnchor = previousPosition
+                        self.positionTimestamp = nil
+                        self.suppressRebuildStoppedCallback = true
+                    }
                 }
                 self.notifyStateDidChange()
             } catch {
@@ -446,8 +478,7 @@ final class NodeAudioPlayer: @unchecked Sendable {
 
     private func shouldDownloadFirst(mimeType: String?) -> Bool {
         guard let mime = mimeType?.lowercased() else { return false }
-        return mime.contains("mp4") || mime.contains("mpeg") || mime.contains("aac") ||
-               mime.contains("3gp") || mime.contains("adts")
+        return mime.contains("mp4") || mime.contains("3gp")
     }
 
     private func fileExtension(for mimeType: String?) -> String? {
@@ -528,7 +559,31 @@ final class NodeAudioPlayer: @unchecked Sendable {
     }
 
     private func notifyStateDidChange() {
+        updateNowPlayingInfo()
         stateDidChange?()
+    }
+    
+    private func updateNowPlayingInfo() {
+        guard let mediaSession else { return }
+        
+        guard let currentIndex, items.indices.contains(currentIndex) else {
+            mediaSession.clearNowPlaying()
+            return
+        }
+        
+        let currentItem = items[currentIndex]
+        let trackID = currentItem.trackID
+        let position = currentPositionLocked()
+        
+        mediaSession.updateNowPlaying(
+            title: "Track \(currentIndex + 1)",
+            artist: nil,
+            album: nil,
+            duration: nil,
+            elapsedTime: position
+        )
+        
+        mediaSession.updatePlaybackState(isPlaying: status == .playing)
     }
 
     fileprivate func handlePlaybackStateChange(_ playbackState: AudioPlayer.PlaybackState, epoch: UInt64?) {
