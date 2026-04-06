@@ -9,6 +9,7 @@ NS_ASSUME_NONNULL_BEGIN
 @property(nonatomic, readonly, copy, nullable) NSString *mimeTypeHint;
 
 - (instancetype)initWithURL:(NSURL *)url mimeTypeHint:(nullable NSString *)mimeTypeHint NS_DESIGNATED_INITIALIZER;
+- (NSString *)resolvedMimeTypeHint;
 
 @end
 

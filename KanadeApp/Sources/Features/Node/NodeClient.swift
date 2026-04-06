@@ -1,4 +1,5 @@
 import Foundation
+import CommonCrypto
 import KanadeKit
 import Observation
 @preconcurrency import Starscream
@@ -59,21 +60,32 @@ final class NodeClient: @unchecked Sendable {
     }
 
     func disconnect() {
-        queue.async { [weak self] in
-            guard let self else { return }
-            self.isActive = false
-            self.isRegistered = false
-            self.mediaBaseURL = nil
-            self.retryCount = 0
-            self.reconnectTask?.cancel()
-            self.reconnectTask = nil
-            self.stopStateTimerLocked()
-            let socket = self.socket
-            self.socket = nil
-            socket?.disconnect()
-            self.connectionChanged?(false)
-            self.audioPlayer.stop()
+        syncOnQueue {
+            disconnectLocked()
         }
+    }
+
+    private func syncOnQueue<T>(_ body: () -> T) -> T {
+        if DispatchQueue.getSpecific(key: queueKey) != nil {
+            return body()
+        }
+
+        return queue.sync(execute: body)
+    }
+
+    private func disconnectLocked() {
+        isActive = false
+        isRegistered = false
+        mediaBaseURL = nil
+        retryCount = 0
+        reconnectTask?.cancel()
+        reconnectTask = nil
+        stopStateTimerLocked()
+        let socket = socket
+        self.socket = nil
+        socket?.disconnect()
+        connectionChanged?(false)
+        audioPlayer.stop()
     }
 
     private func startConnectionLocked() {
@@ -177,8 +189,43 @@ final class NodeClient: @unchecked Sendable {
 
     private func makeQueueItems(filePaths: [String], mediaBaseURL: URL) -> [NodeAudioPlayer.QueueItem] {
         filePaths.map { filePath in
-            NodeAudioPlayer.QueueItem(trackID: filePath, url: mediaBaseURL.appending(path: "media/tracks").appending(path: filePath))
+            let trackID = sha256(filePath)
+            let url = mediaBaseURL
+                .appendingPathComponent("media")
+                .appendingPathComponent("tracks")
+                .appendingPathComponent(trackID)
+            let mimeType = mimeTypeForFileExtension(filePath)
+            return NodeAudioPlayer.QueueItem(trackID: trackID, url: url, mimeType: mimeType)
         }
+    }
+
+    private func mimeTypeForFileExtension(_ filePath: String) -> String? {
+        let ext = (filePath as NSString).pathExtension.lowercased()
+        switch ext {
+        case "flac": return "audio/flac"
+        case "mp3": return "audio/mpeg"
+        case "m4a", "mp4": return "audio/mp4"
+        case "wav": return "audio/wav"
+        case "ogg", "oga": return "audio/ogg"
+        case "opus": return "audio/opus"
+        case "wma": return "audio/x-ms-wma"
+        case "aiff", "aif": return "audio/aiff"
+        case "aac": return "audio/aac"
+        case "ape": return "audio/x-ape"
+        case "wv": return "audio/x-wavpack"
+        case "dsf": return "audio/x-dsf"
+        case "dff", "dsdiff": return "audio/x-dsdiff"
+        default: return nil
+        }
+    }
+
+    private func sha256(_ string: String) -> String {
+        let data = Data(string.utf8)
+        var hash = [UInt8](repeating: 0, count: 32)
+        data.withUnsafeBytes { buffer in
+            _ = CC_SHA256(buffer.baseAddress, CC_LONG(buffer.count), &hash)
+        }
+        return hash.map { String(format: "%02x", $0) }.joined()
     }
 
     private func sendRegistrationLocked() {

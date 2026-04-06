@@ -127,7 +127,6 @@ final class AppState {
         newClient.connect()
         client = newClient
         mediaClient = MediaClient(baseURL: httpURL)
-        restartNodeIfNeeded()
     }
 
     func retryConnection() {
