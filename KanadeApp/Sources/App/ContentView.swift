@@ -8,6 +8,7 @@ enum SidebarItem: Hashable {
 struct ContentView: View {
     @Environment(AppState.self) private var appState
     @State private var sidebarSelection: SidebarItem? = .library
+    @State private var showNowPlaying = false
 
     var body: some View {
         Group {
@@ -60,7 +61,16 @@ struct ContentView: View {
         .tabViewBottomAccessory {
             if appState.shouldShowMiniPlayer {
                 NowPlayingBar(placement: .iosAccessory)
+                    .onTapGesture {
+                        showNowPlaying = true
+                    }
             }
+        }
+        .sheet(isPresented: $showNowPlaying) {
+            NowPlayingView()
+                .presentationDetents([.large])
+                .presentationDragIndicator(.hidden)
+                .presentationBackground(.clear)
         }
         .tabBarMinimizeBehavior(.onScrollDown)
     }

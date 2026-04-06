@@ -43,8 +43,8 @@ struct NowPlayingView: View {
         Double(currentNode?.volume ?? 0)
     }
 
-    private var playbackStatus: PlaybackStatus {
-        currentNode?.status ?? .stopped
+    private var isPlaying: Bool {
+        currentNode?.status == .playing
     }
 
     private var repeatMode: RepeatMode {
@@ -56,6 +56,204 @@ struct NowPlayingView: View {
     }
 
     var body: some View {
+        #if os(iOS)
+        VStack(spacing: 32) {
+            Capsule()
+                .fill(Color.secondary.opacity(0.4))
+                .frame(width: 36, height: 5)
+                .padding(.top, 8)
+                .padding(.bottom, 8)
+
+            if let currentTrack {
+                ArtworkView(mediaClient: appState.mediaClient, albumId: currentTrack.albumId)
+                    .frame(maxWidth: 380, maxHeight: 380)
+                    .aspectRatio(1, contentMode: .fit)
+                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    .shadow(color: .black.opacity(0.25), radius: 30, y: 12)
+                    .padding(.horizontal, 32)
+            } else {
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(.quaternary)
+                    .frame(maxWidth: 380, maxHeight: 380)
+                    .aspectRatio(1, contentMode: .fit)
+                    .padding(.horizontal, 32)
+                    .overlay {
+                        Image(systemName: "music.note.list")
+                            .font(.system(size: 64, weight: .light))
+                            .foregroundStyle(.white.opacity(0.5))
+                    }
+            }
+
+            VStack(spacing: 32) {
+                VStack(spacing: 2) {
+                    Text(currentTrack?.title ?? "Nothing Playing")
+                        .font(.title.weight(.bold))
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+
+                    HStack(spacing: 4) {
+                        Text(currentTrack?.artist ?? "Unknown Artist")
+                            .foregroundStyle(.white.opacity(0.7))
+                        Text("·")
+                            .foregroundStyle(.white.opacity(0.5))
+                        Text(currentTrack?.albumTitle ?? "Unknown Album")
+                            .foregroundStyle(.white.opacity(0.5))
+                    }
+                    .font(.body)
+                    .lineLimit(1)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .padding(.horizontal, 32)
+
+                VStack(spacing: 8) {
+                    Slider(
+                        value: Binding(
+                            get: { seekPosition },
+                            set: { seekPosition = $0 }
+                        ),
+                        in: 0...sliderDuration,
+                        onEditingChanged: { editing in
+                            isSeeking = editing
+                            if !editing {
+                                client?.seek(to: seekPosition)
+                            }
+                        }
+                    )
+                    .disabled(currentTrack == nil)
+
+                    HStack {
+                        Text(formatTime(seekPosition))
+                        Spacer()
+                        Text(formatTime(sliderDuration))
+                    }
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.white.opacity(0.5))
+                }
+                .padding(.horizontal, 32)
+                .padding(.top, 8)
+
+                HStack(spacing: 0) {
+                    Button {
+                        client?.setShuffle(!shuffleEnabled)
+                    } label: {
+                        Image(systemName: "shuffle")
+                            .font(.title3)
+                            .foregroundStyle(shuffleEnabled ? .white : .white.opacity(0.5))
+                            .frame(width: 36, height: 36)
+                            .background(shuffleEnabled ? .white.opacity(0.15) : .clear, in: Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .contentShape(Rectangle())
+                    .frame(maxWidth: .infinity)
+
+                    Button {
+                        client?.previous()
+                    } label: {
+                        Image(systemName: "backward.fill")
+                            .font(.title)
+                            .foregroundStyle(.white)
+                    }
+                    .buttonStyle(.plain)
+                    .contentShape(Rectangle())
+                    .disabled(currentTrack == nil)
+                    .frame(maxWidth: .infinity)
+
+                    Button {
+                        togglePlayback()
+                    } label: {
+                        Image(systemName: isPlaying ? "pause.circle.fill" : "play.circle.fill")
+                            .font(.system(size: 64))
+                            .foregroundStyle(.white)
+                    }
+                    .buttonStyle(.plain)
+                    .contentShape(Rectangle())
+                    .disabled(currentTrack == nil)
+                    .frame(maxWidth: .infinity)
+
+                    Button {
+                        client?.next()
+                    } label: {
+                        Image(systemName: "forward.fill")
+                            .font(.title)
+                            .foregroundStyle(.white)
+                    }
+                    .buttonStyle(.plain)
+                    .contentShape(Rectangle())
+                    .disabled(currentTrack == nil)
+                    .frame(maxWidth: .infinity)
+
+                    Button {
+                        client?.setRepeat(nextRepeatMode)
+                    } label: {
+                        Image(systemName: repeatSymbolName)
+                            .font(.title3)
+                            .foregroundStyle(repeatMode == .off ? .white.opacity(0.5) : .white)
+                            .frame(width: 36, height: 36)
+                            .background(repeatMode == .off ? .clear : .white.opacity(0.15), in: Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .contentShape(Rectangle())
+                    .frame(maxWidth: .infinity)
+                }
+                .padding(.horizontal, 16)
+
+                HStack(spacing: 12) {
+                    Image(systemName: "speaker.fill")
+                        .font(.caption)
+                        .foregroundStyle(.white.opacity(0.5))
+
+                    Slider(
+                        value: Binding(
+                            get: { volumeValue },
+                            set: { volumeValue = $0 }
+                        ),
+                        in: 0...100,
+                        onEditingChanged: { editing in
+                            isAdjustingVolume = editing
+                            if !editing {
+                                client?.setVolume(Int(volumeValue.rounded()))
+                                syncVolumeValue()
+                            }
+                        }
+                    )
+
+                    Image(systemName: "speaker.wave.3.fill")
+                        .font(.caption)
+                        .foregroundStyle(.white.opacity(0.5))
+                }
+                .padding(.horizontal, 32)
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(.top, 8)
+        .padding(.bottom, 32)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(backgroundView)
+        .onAppear {
+            syncSeekPosition()
+            syncVolumeValue()
+        }
+        .onChange(of: currentTrack?.id) {
+            syncSeekPosition()
+        }
+        .onChange(of: currentPosition) {
+            if !isSeeking {
+                syncSeekPosition()
+            }
+        }
+        .onChange(of: currentVolume) {
+            if !isAdjustingVolume {
+                syncVolumeValue()
+            }
+        }
+        .onChange(of: volumeValue) {
+            if isAdjustingVolume {
+                client?.setVolume(Int(volumeValue.rounded()))
+            }
+        }
+        #else
         HStack(spacing: 24) {
             artworkColumn
             infoAndControls
@@ -86,8 +284,10 @@ struct NowPlayingView: View {
                 client?.setVolume(Int(volumeValue.rounded()))
             }
         }
+        #endif
     }
 
+    #if os(macOS)
     private var artworkColumn: some View {
         VStack {
             Spacer()
@@ -189,7 +389,7 @@ struct NowPlayingView: View {
             Button {
                 togglePlayback()
             } label: {
-                Image(systemName: playbackStatus == .playing ? "pause.circle.fill" : "play.circle.fill")
+                Image(systemName: isPlaying ? "pause.circle.fill" : "play.circle.fill")
                     .font(.system(size: 52))
             }
             .buttonStyle(.plain)
@@ -258,6 +458,7 @@ struct NowPlayingView: View {
             }
         }
     }
+    #endif
 
     private var sliderDuration: Double {
         max(currentTrack?.durationSecs ?? 0, 1)
@@ -284,6 +485,21 @@ struct NowPlayingView: View {
     }
 
     private var backgroundView: some View {
+        #if os(iOS)
+        ZStack {
+            Color.black.opacity(0.85)
+            LinearGradient(
+                colors: [
+                    Color.accentColor.opacity(0.20),
+                    Color.accentColor.opacity(0.05),
+                    Color.clear
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+        }
+        .ignoresSafeArea()
+        #else
         LinearGradient(
             colors: [
                 Color.accentColor.opacity(0.15),
@@ -294,13 +510,13 @@ struct NowPlayingView: View {
             endPoint: .bottom
         )
         .ignoresSafeArea()
+        #endif
     }
 
     private func togglePlayback() {
-        switch playbackStatus {
-        case .playing:
+        if isPlaying {
             client?.pause()
-        default:
+        } else {
             client?.play()
         }
     }
