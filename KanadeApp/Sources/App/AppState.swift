@@ -19,7 +19,7 @@ final class AppState {
     @ObservationIgnored private let defaults = UserDefaults.standard
     @ObservationIgnored private var didAttemptStartupConnect = false
     @ObservationIgnored private var nodeClient: NodeClient?
-    #if os(iOS)
+    #if os(iOS) || os(macOS)
     @ObservationIgnored private var mediaSessionManager: IOSMediaSessionManager?
     #endif
 
@@ -107,7 +107,7 @@ final class AppState {
         autoConnectOnLaunch = defaults.object(forKey: Self.autoConnectKey) as? Bool ?? true
         nodeEnabled = defaults.object(forKey: Self.nodeEnabledKey) as? Bool ?? false
         nodeName = defaults.string(forKey: Self.nodeNameKey) ?? Self.defaultNodeName
-        #if os(iOS)
+        #if os(iOS) || os(macOS)
         mediaSessionManager = IOSMediaSessionManager()
         #endif
         if nodeEnabled {
@@ -189,7 +189,7 @@ final class AppState {
     }
 
     private func updateIOSMediaSession() {
-        #if os(iOS)
+        #if os(iOS) || os(macOS)
         let client = client
         let mediaClient = mediaClient
         let state = client?.state

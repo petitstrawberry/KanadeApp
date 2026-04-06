@@ -1,9 +1,15 @@
+#if os(iOS) || os(macOS)
 #if os(iOS)
 import AVFAudio
+#endif
 import Foundation
 import KanadeKit
 import MediaPlayer
+#if canImport(UIKit)
 import UIKit
+#elseif canImport(AppKit)
+import AppKit
+#endif
 
 @MainActor
 final class IOSMediaSessionManager {
@@ -21,7 +27,9 @@ final class IOSMediaSessionManager {
     init() {
         configureAudioSession()
         registerRemoteCommandsIfNeeded()
+        #if os(iOS)
         UIApplication.shared.beginReceivingRemoteControlEvents()
+        #endif
     }
 
     func update(client: KanadeClient?, mediaClient: MediaClient?, state: PlaybackState?) {
@@ -100,12 +108,14 @@ final class IOSMediaSessionManager {
     }
 
     private func configureAudioSession() {
+        #if os(iOS)
         do {
             let session = AVAudioSession.sharedInstance()
             try session.setCategory(.playback)
             try session.setActive(true)
         } catch {
         }
+        #endif
     }
 
     private func updateCommandAvailability(_ snapshot: Snapshot) {
@@ -180,7 +190,7 @@ final class IOSMediaSessionManager {
             guard let self else { return }
             guard let data = try? await mediaClient.artwork(albumId: albumId) else { return }
             guard !Task.isCancelled else { return }
-            guard let image = UIImage(data: data) else { return }
+            guard let image = PlatformImage(data: data) else { return }
             ArtworkCache.setImage(image, for: albumId)
             guard self.artworkAlbumId == albumId else { return }
             self.refreshNowPlayingInfo()
