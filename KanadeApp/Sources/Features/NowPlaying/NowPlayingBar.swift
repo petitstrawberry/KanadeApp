@@ -16,40 +16,20 @@ struct NowPlayingBar: View {
     @State private var volumeValue: Double = 0
     @State private var isAdjustingVolume = false
 
-    private var client: KanadeClient? { appState.client }
-    private var playbackState: PlaybackState? { client?.state }
-
     private var currentTrack: Track? {
-        guard let playbackState,
-              let currentIndex = playbackState.currentIndex,
-              playbackState.queue.indices.contains(currentIndex) else {
-            return nil
-        }
-
-        return playbackState.queue[currentIndex]
-    }
-
-    private var currentNode: Node? {
-        guard let playbackState else { return nil }
-
-        if let selectedNodeId = playbackState.selectedNodeId,
-           let selectedNode = playbackState.nodes.first(where: { $0.id == selectedNodeId }) {
-            return selectedNode
-        }
-
-        return playbackState.nodes.first(where: \.connected) ?? playbackState.nodes.first
+        appState.effectiveCurrentTrack
     }
 
     private var isPlaying: Bool {
-        currentNode?.status == .playing
+        appState.effectiveTransportState?.isPlayingLike ?? false
     }
 
     private var currentPosition: Double {
-        currentNode?.positionSecs ?? 0
+        appState.effectiveTransportState?.positionSecs ?? 0
     }
 
     private var currentVolume: Double {
-        Double(currentNode?.volume ?? 0)
+        Double(appState.effectiveTransportState?.volume ?? 0)
     }
 
     private var sliderDuration: Double {
@@ -57,11 +37,11 @@ struct NowPlayingBar: View {
     }
 
     private var repeatMode: RepeatMode {
-        playbackState?.repeatMode ?? .off
+        appState.effectiveRepeatMode
     }
 
     private var shuffleEnabled: Bool {
-        playbackState?.shuffle ?? false
+        appState.effectiveShuffleEnabled
     }
 
     init(placement: NowPlayingBarPlacement = .iosAccessory) {
@@ -187,7 +167,7 @@ struct NowPlayingBar: View {
         VStack(spacing: 6) {
             HStack(spacing: 20) {
                 Button {
-                    client?.setShuffle(!shuffleEnabled)
+                    appState.performSetShuffle(!shuffleEnabled)
                 } label: {
                     Image(systemName: "shuffle")
                         .font(.system(size: 14))
@@ -198,7 +178,7 @@ struct NowPlayingBar: View {
                 .contentShape(Rectangle())
 
                 Button {
-                    client?.previous()
+                    appState.performPrevious()
                 } label: {
                     Image(systemName: "backward.fill")
                         .font(.system(size: 14))
@@ -218,7 +198,7 @@ struct NowPlayingBar: View {
                 .contentShape(Rectangle())
 
                 Button {
-                    client?.next()
+                    appState.performNext()
                 } label: {
                     Image(systemName: "forward.fill")
                         .font(.system(size: 14))
@@ -228,7 +208,7 @@ struct NowPlayingBar: View {
                 .contentShape(Rectangle())
 
                 Button {
-                    client?.setRepeat(nextRepeatMode)
+                    appState.performSetRepeat(nextRepeatMode)
                 } label: {
                     Image(systemName: repeatSymbolName)
                         .font(.system(size: 14))
@@ -263,7 +243,7 @@ struct NowPlayingBar: View {
                                     isSeeking = true
                                 }
                                 .onEnded { _ in
-                                    client?.seek(to: seekPosition)
+                                    appState.performSeek(to: seekPosition)
                                     isSeeking = false
                                 }
                         )
@@ -296,7 +276,7 @@ struct NowPlayingBar: View {
                     in: 0...100,
                     onEditingChanged: { editing in
                         isAdjustingVolume = editing
-                        client?.setVolume(Int(volumeValue.rounded()))
+                        appState.performSetVolume(Int(volumeValue.rounded()))
                         if !editing {
                             syncVolumeValue()
                         }
@@ -401,9 +381,9 @@ struct NowPlayingBar: View {
 
     private func togglePlayback() {
         if isPlaying {
-            client?.pause()
+            appState.performPause()
         } else {
-            client?.play()
+            appState.performPlay()
         }
     }
 

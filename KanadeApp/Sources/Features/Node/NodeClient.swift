@@ -7,6 +7,7 @@ import Observation
 final class NodeClient: @unchecked Sendable {
     var connectionChanged: (@Sendable (Bool) -> Void)?
     var errorHandler: (@Sendable (any Error) -> Void)?
+    var localSnapshotDidChange: (@Sendable (NodeAudioPlayer.Snapshot) -> Void)?
 
     private let url: URL
     private let reconnectPolicy: ReconnectPolicy
@@ -24,7 +25,7 @@ final class NodeClient: @unchecked Sendable {
     private var isActive = false
     private var isRegistered = false
     private var mediaBaseURL: URL?
-    private var nodeID: String?
+    private var storedNodeID: String?
 
     init(
         url: URL,
@@ -39,6 +40,9 @@ final class NodeClient: @unchecked Sendable {
         audioPlayer.stateDidChange = { [weak self] in
             self?.queue.async {
                 self?.sendStateUpdateIfPossible()
+                if let snapshot = self?.audioPlayer.snapshot() {
+                    self?.localSnapshotDidChange?(snapshot)
+                }
             }
         }
         audioPlayer.errorHandler = { [weak self] error in
@@ -65,6 +69,109 @@ final class NodeClient: @unchecked Sendable {
         }
     }
 
+    var nodeID: String? {
+        syncOnQueue { storedNodeID }
+    }
+
+    func playLocal() {
+        queue.async { [weak self] in
+            self?.audioPlayer.play()
+        }
+    }
+
+    func pauseLocal() {
+        queue.async { [weak self] in
+            self?.audioPlayer.pause()
+        }
+    }
+
+    func seekLocal(to positionSecs: Double) {
+        queue.async { [weak self] in
+            self?.audioPlayer.seek(to: positionSecs)
+        }
+    }
+
+    func setVolumeLocal(_ volume: Int) {
+        queue.async { [weak self] in
+            self?.audioPlayer.setVolume(volume)
+        }
+    }
+
+    func nextLocal() {
+        queue.async { [weak self] in
+            self?.audioPlayer.next()
+        }
+    }
+
+    func previousLocal() {
+        queue.async { [weak self] in
+            self?.audioPlayer.previous()
+        }
+    }
+
+    func setRepeatLocal(_ repeatMode: NodeAudioPlayer.LocalRepeatMode) {
+        queue.async { [weak self] in
+            self?.audioPlayer.setRepeat(repeatMode)
+        }
+    }
+
+    func setShuffleLocal(_ enabled: Bool) {
+        queue.async { [weak self] in
+            self?.audioPlayer.setShuffle(enabled)
+        }
+    }
+
+    func playIndexLocal(_ index: Int) {
+        queue.async { [weak self] in
+            self?.audioPlayer.play(at: index)
+        }
+    }
+
+    func replaceAndPlayLocal(tracks: [Track], index: Int) {
+        queue.async { [weak self] in
+            guard let self,
+                  let items = self.makeQueueItems(from: tracks) else { return }
+            self.audioPlayer.replaceAndPlay(items, at: index)
+        }
+    }
+
+    func addLocal(_ tracks: [Track]) {
+        queue.async { [weak self] in
+            guard let self,
+                  let items = self.makeQueueItems(from: tracks) else { return }
+            self.audioPlayer.add(items)
+        }
+    }
+
+    func removeLocal(at index: Int) {
+        queue.async { [weak self] in
+            self?.audioPlayer.remove(at: index)
+        }
+    }
+
+    func moveLocal(from sourceIndex: Int, to destinationIndex: Int) {
+        queue.async { [weak self] in
+            self?.audioPlayer.move(from: sourceIndex, to: destinationIndex)
+        }
+    }
+
+    func clearQueueLocal() {
+        queue.async { [weak self] in
+            self?.audioPlayer.clearQueue()
+        }
+    }
+
+    func localSnapshot() -> NodeAudioPlayer.Snapshot {
+        audioPlayer.snapshot()
+    }
+
+    func makeQueueItems(from tracks: [Track]) -> [NodeAudioPlayer.QueueItem]? {
+        syncOnQueue {
+            guard let mediaBaseURL else { return nil }
+            return makeQueueItems(filePaths: tracks.map(\.filePath), mediaBaseURL: mediaBaseURL)
+        }
+    }
+
     private func syncOnQueue<T>(_ body: () -> T) -> T {
         if DispatchQueue.getSpecific(key: queueKey) != nil {
             return body()
@@ -74,18 +181,28 @@ final class NodeClient: @unchecked Sendable {
     }
 
     private func disconnectLocked() {
-        isActive = false
         isRegistered = false
         mediaBaseURL = nil
         retryCount = 0
         reconnectTask?.cancel()
         reconnectTask = nil
-        stopStateTimerLocked()
         let socket = socket
         self.socket = nil
         socket?.disconnect()
         connectionChanged?(false)
-        audioPlayer.stop()
+    }
+
+    func stopAndDisconnect() {
+        syncOnQueue {
+            isActive = false
+            stopStateTimerLocked()
+            storedNodeID = nil
+            audioPlayer.stop()
+            let socket = socket
+            self.socket = nil
+            socket?.disconnect()
+            connectionChanged?(false)
+        }
     }
 
     private func startConnectionLocked() {
@@ -155,7 +272,7 @@ final class NodeClient: @unchecked Sendable {
     }
 
     private func handleRegistrationAckLocked(_ ack: NodeRegistrationAck) throws {
-        nodeID = ack.nodeID
+        storedNodeID = ack.nodeID
         mediaBaseURL = URL(string: ack.mediaBaseURL)
         isRegistered = true
         connectionChanged?(true)
@@ -231,7 +348,7 @@ final class NodeClient: @unchecked Sendable {
     private func sendRegistrationLocked() {
         let trimmedName = nodeNameProvider().trimmingCharacters(in: .whitespacesAndNewlines)
         let registration = NodeRegistration(
-            nodeID: nodeID,
+            nodeID: storedNodeID,
             displayName: trimmedName.isEmpty ? nil : trimmedName,
             name: trimmedName.isEmpty ? nil : trimmedName
         )
@@ -294,6 +411,9 @@ final class NodeClient: @unchecked Sendable {
         timer.schedule(deadline: .now() + .milliseconds(500), repeating: .milliseconds(500))
         timer.setEventHandler { [weak self] in
             self?.sendStateUpdateIfPossible()
+            if let snapshot = self?.audioPlayer.snapshot() {
+                self?.localSnapshotDidChange?(snapshot)
+            }
         }
         stateTimer = timer
         timer.resume()

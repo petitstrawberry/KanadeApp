@@ -19,10 +19,20 @@ final class IOSMediaSessionManager {
     private var client: KanadeClient?
     private var mediaClient: MediaClient?
     private var state: PlaybackState?
+    private var effectiveCurrentTrack: Track?
+    private var effectiveTransportState: AppState.EffectiveTransportState?
+    private var isLocalPlaybackNode = false
     private var artworkTask: Task<Void, Never>?
     private var artworkAlbumId: String?
     private var isRegistered = false
     private var lastSnapshot: Snapshot?
+
+    var performPlay: (() -> Void)?
+    var performPause: (() -> Void)?
+    var performSeek: ((Double) -> Void)?
+    var performSetVolume: ((Int) -> Void)?
+    var performNext: (() -> Void)?
+    var performPrevious: (() -> Void)?
 
     init() {
         configureAudioSession()
@@ -32,13 +42,46 @@ final class IOSMediaSessionManager {
         #endif
     }
 
-    func update(client: KanadeClient?, mediaClient: MediaClient?, state: PlaybackState?) {
+    func update(
+        client: KanadeClient?,
+        mediaClient: MediaClient?,
+        state: PlaybackState?,
+        effectiveTransportState: AppState.EffectiveTransportState?,
+        isLocalPlaybackNode: Bool
+    ) {
+        update(
+            client: client,
+            mediaClient: mediaClient,
+            state: state,
+            effectiveCurrentTrack: nil,
+            effectiveTransportState: effectiveTransportState,
+            isLocalPlaybackNode: isLocalPlaybackNode
+        )
+    }
+
+    func update(
+        client: KanadeClient?,
+        mediaClient: MediaClient?,
+        state: PlaybackState?,
+        effectiveCurrentTrack: Track?,
+        effectiveTransportState: AppState.EffectiveTransportState?,
+        isLocalPlaybackNode: Bool
+    ) {
         registerRemoteCommandsIfNeeded()
         self.client = client
         self.mediaClient = mediaClient
         self.state = state
+        self.effectiveCurrentTrack = effectiveCurrentTrack
+        self.effectiveTransportState = effectiveTransportState
+        self.isLocalPlaybackNode = isLocalPlaybackNode
 
-        let snapshot = Snapshot(state: state)
+        let snapshot = Snapshot(
+            state: state,
+            effectiveCurrentTrack: effectiveCurrentTrack,
+            effectiveTransportState: effectiveTransportState,
+            isLocalPlaybackNode: isLocalPlaybackNode,
+            previousSnapshot: lastSnapshot
+        )
         
         let shouldRefreshNowPlaying: Bool
         if let last = lastSnapshot {
@@ -48,59 +91,78 @@ final class IOSMediaSessionManager {
         }
         
         updateCommandAvailability(snapshot)
-        
+
         if shouldRefreshNowPlaying {
-            refreshNowPlayingInfo()
+            refreshNowPlayingInfo(snapshot: snapshot)
         }
         
         updateArtworkLoading(for: snapshot.track)
         lastSnapshot = snapshot
     }
 
+    func invalidateSnapshotCache() {
+        lastSnapshot = nil
+    }
+
     private func registerRemoteCommandsIfNeeded() {
         guard !isRegistered else { return }
 
         commandCenter.playCommand.addTarget { [weak self] _ in
-            guard let self, self.client != nil else { return .commandFailed }
-            self.client?.play()
+            guard let self else { return .commandFailed }
+            guard let performPlay = self.performPlay else { return .commandFailed }
+            performPlay()
             return .success
         }
 
         commandCenter.pauseCommand.addTarget { [weak self] _ in
-            guard let self, self.client != nil else { return .commandFailed }
-            self.client?.pause()
+            guard let self else { return .commandFailed }
+            guard let performPause = self.performPause else { return .commandFailed }
+            performPause()
             return .success
         }
 
         commandCenter.togglePlayPauseCommand.addTarget { [weak self] _ in
-            guard let self, let client = self.client else { return .commandFailed }
-            if Snapshot(state: self.state).isPlaying {
-                client.pause()
+            guard let self else { return .commandFailed }
+            let willPlay = !(self.lastSnapshot?.isPlayingLike ?? false)
+            if willPlay {
+                guard let performPlay = self.performPlay else { return .commandFailed }
+                performPlay()
             } else {
-                client.play()
+                guard let performPause = self.performPause else { return .commandFailed }
+                performPause()
             }
             return .success
         }
 
         commandCenter.nextTrackCommand.addTarget { [weak self] _ in
-            guard let self, self.client != nil else { return .commandFailed }
-            self.client?.next()
+            guard let self else { return .commandFailed }
+            if self.isLocalPlaybackNode, let performNext = self.performNext {
+                performNext()
+                return .success
+            }
+            guard let client = self.client else { return .commandFailed }
+            client.next()
             return .success
         }
 
         commandCenter.previousTrackCommand.addTarget { [weak self] _ in
-            guard let self, self.client != nil else { return .commandFailed }
-            self.client?.previous()
+            guard let self else { return .commandFailed }
+            if self.isLocalPlaybackNode, let performPrevious = self.performPrevious {
+                performPrevious()
+                return .success
+            }
+            guard let client = self.client else { return .commandFailed }
+            client.previous()
             return .success
         }
 
         commandCenter.changePlaybackPositionCommand.addTarget { [weak self] event in
             guard let self,
-                  let client = self.client,
+                  let performSeek = self.performSeek,
                   let event = event as? MPChangePlaybackPositionCommandEvent else {
                 return .commandFailed
             }
-            client.seek(to: event.positionTime)
+            performSeek(event.positionTime)
             return .success
         }
 
@@ -120,49 +182,70 @@ final class IOSMediaSessionManager {
 
     private func updateCommandAvailability(_ snapshot: Snapshot) {
         let hasTrack = snapshot.track != nil
-        commandCenter.playCommand.isEnabled = hasTrack && !snapshot.isPlaying
-        commandCenter.pauseCommand.isEnabled = hasTrack && snapshot.isPlaying
+        let localCanSkipForward = hasTrack && (performNext != nil || client != nil)
+        let localCanSkipBackward = hasTrack && (performPrevious != nil || client != nil)
+        commandCenter.playCommand.isEnabled = hasTrack && !snapshot.isPlayingLike
+        commandCenter.pauseCommand.isEnabled = hasTrack && snapshot.isPlayingLike
         commandCenter.togglePlayPauseCommand.isEnabled = hasTrack
-        commandCenter.nextTrackCommand.isEnabled = snapshot.hasNextTrack
-        commandCenter.previousTrackCommand.isEnabled = snapshot.hasPreviousTrack
+        commandCenter.nextTrackCommand.isEnabled = isLocalPlaybackNode ? localCanSkipForward : snapshot.hasNextTrack
+        commandCenter.previousTrackCommand.isEnabled = isLocalPlaybackNode ? localCanSkipBackward : snapshot.hasPreviousTrack
         commandCenter.changePlaybackPositionCommand.isEnabled = snapshot.canSeek
     }
 
-    private func refreshNowPlayingInfo() {
-        let snapshot = Snapshot(state: state)
+    private func refreshNowPlayingInfo(snapshot: Snapshot) {
         guard let track = snapshot.track else {
+            guard snapshot.shouldClearNowPlayingInfo else {
+                var nowPlayingInfo = nowPlayingInfoCenter.nowPlayingInfo ?? [:]
+                nowPlayingInfo[MPNowPlayingInfoPropertyElapsedPlaybackTime] = max(snapshot.positionSecs, 0)
+                nowPlayingInfo[MPNowPlayingInfoPropertyPlaybackRate] = snapshot.isPlayingLike ? 1.0 : 0.0
+                nowPlayingInfo[MPNowPlayingInfoPropertyDefaultPlaybackRate] = 1.0
+                nowPlayingInfoCenter.nowPlayingInfo = nowPlayingInfo
+                nowPlayingInfoCenter.playbackState = snapshot.nowPlayingPlaybackState
+                return
+            }
             nowPlayingInfoCenter.nowPlayingInfo = nil
             nowPlayingInfoCenter.playbackState = .stopped
             return
         }
 
-        var nowPlayingInfo: [String: Any] = [:]
+        var nowPlayingInfo = nowPlayingInfoCenter.nowPlayingInfo ?? [:]
 
         if let title = track.title {
             nowPlayingInfo[MPMediaItemPropertyTitle] = title
+        } else {
+            nowPlayingInfo.removeValue(forKey: MPMediaItemPropertyTitle)
         }
 
         if let artist = track.artist {
             nowPlayingInfo[MPMediaItemPropertyArtist] = artist
+        } else {
+            nowPlayingInfo.removeValue(forKey: MPMediaItemPropertyArtist)
         }
 
         if let albumTitle = track.albumTitle {
             nowPlayingInfo[MPMediaItemPropertyAlbumTitle] = albumTitle
+        } else {
+            nowPlayingInfo.removeValue(forKey: MPMediaItemPropertyAlbumTitle)
         }
 
         if let duration = track.durationSecs {
             nowPlayingInfo[MPMediaItemPropertyPlaybackDuration] = duration
             nowPlayingInfo[MPNowPlayingInfoPropertyElapsedPlaybackTime] = min(max(snapshot.positionSecs, 0), duration)
         } else {
+            nowPlayingInfo.removeValue(forKey: MPMediaItemPropertyPlaybackDuration)
             nowPlayingInfo[MPNowPlayingInfoPropertyElapsedPlaybackTime] = max(snapshot.positionSecs, 0)
         }
 
-        nowPlayingInfo[MPNowPlayingInfoPropertyPlaybackRate] = snapshot.isPlaying ? 1.0 : 0.0
+        nowPlayingInfo[MPNowPlayingInfoPropertyPlaybackRate] = snapshot.isPlayingLike ? 1.0 : 0.0
         nowPlayingInfo[MPNowPlayingInfoPropertyDefaultPlaybackRate] = 1.0
 
         if let albumId = track.albumId,
            let image = ArtworkCache.image(for: albumId) {
             nowPlayingInfo[MPMediaItemPropertyArtwork] = MPMediaItemArtwork(boundsSize: image.size) { _ in image }
+        } else {
+            if !snapshot.shouldPreserveArtwork {
+                nowPlayingInfo.removeValue(forKey: MPMediaItemPropertyArtwork)
+            }
         }
 
         nowPlayingInfoCenter.nowPlayingInfo = nowPlayingInfo
@@ -193,7 +276,14 @@ final class IOSMediaSessionManager {
             guard let image = PlatformImage(data: data) else { return }
             ArtworkCache.setImage(image, for: albumId)
             guard self.artworkAlbumId == albumId else { return }
-            self.refreshNowPlayingInfo()
+            let snapshot = Snapshot(
+                state: self.state,
+                effectiveCurrentTrack: self.effectiveCurrentTrack,
+                effectiveTransportState: self.effectiveTransportState,
+                isLocalPlaybackNode: self.isLocalPlaybackNode,
+                previousSnapshot: self.lastSnapshot
+            )
+            self.refreshNowPlayingInfo(snapshot: snapshot)
         }
     }
 
@@ -203,33 +293,76 @@ final class IOSMediaSessionManager {
         let track: Track?
         let positionSecs: Double
         let status: PlaybackStatus
+        let shouldClearNowPlayingInfo: Bool
+        let shouldPreserveArtwork: Bool
 
-        init(state: PlaybackState?) {
-            currentIndex = state?.currentIndex
-            queueCount = state?.queue.count ?? 0
-            guard let state,
-                  let currentIndex = state.currentIndex,
-                  state.queue.indices.contains(currentIndex) else {
-                track = nil
-                positionSecs = 0
-                status = .stopped
-                return
+        init(
+            state: PlaybackState?,
+            effectiveCurrentTrack: Track?,
+            effectiveTransportState: AppState.EffectiveTransportState?,
+            isLocalPlaybackNode: Bool,
+            previousSnapshot: Snapshot?
+        ) {
+            if isLocalPlaybackNode {
+                currentIndex = nil
+                queueCount = 0
+            } else {
+                currentIndex = state?.currentIndex
+                queueCount = state?.queue.count ?? 0
+            }
+            let serverTrack: Track?
+            if let state,
+               let currentIndex = state.currentIndex,
+               state.queue.indices.contains(currentIndex) {
+                serverTrack = state.queue[currentIndex]
+            } else {
+                serverTrack = nil
             }
 
-            track = state.queue[currentIndex]
+            if isLocalPlaybackNode {
+                track = effectiveCurrentTrack ?? previousSnapshot?.track
+            } else {
+                track = serverTrack
+            }
+
+            shouldClearNowPlayingInfo = !isLocalPlaybackNode && track == nil
+            if isLocalPlaybackNode {
+                if let albumId = track?.albumId {
+                    shouldPreserveArtwork = ArtworkCache.image(for: albumId) == nil
+                } else {
+                    shouldPreserveArtwork = true
+                }
+            } else {
+                shouldPreserveArtwork = false
+            }
+
             let node: Node?
-            if let selectedNodeId = state.selectedNodeId,
-               let selectedNode = state.nodes.first(where: { $0.id == selectedNodeId }) {
+            if let selectedNodeId = state?.selectedNodeId,
+               let selectedNode = state?.nodes.first(where: { $0.id == selectedNodeId }) {
                 node = selectedNode
             } else {
-                node = state.nodes.first(where: \.connected) ?? state.nodes.first
+                node = state?.nodes.first(where: \.connected) ?? state?.nodes.first
             }
-            positionSecs = node?.positionSecs ?? 0
-            status = node?.status ?? .stopped
+
+            if isLocalPlaybackNode, let effectiveTransportState {
+                positionSecs = effectiveTransportState.positionSecs
+                status = Self.playbackStatus(for: effectiveTransportState.status)
+            } else if isLocalPlaybackNode, let previousSnapshot {
+                positionSecs = previousSnapshot.positionSecs
+                status = previousSnapshot.status
+            } else {
+                positionSecs = node?.positionSecs ?? 0
+                status = node?.status ?? .stopped
+            }
         }
 
-        var isPlaying: Bool {
-            status == .playing
+        var isPlayingLike: Bool {
+            switch status {
+            case .playing, .loading:
+                return true
+            case .paused, .stopped:
+                return false
+            }
         }
 
         var canSeek: Bool {
@@ -253,7 +386,20 @@ final class IOSMediaSessionManager {
             case .paused:
                 return .paused
             case .loading:
+                return .playing
+            case .stopped:
+                return .stopped
+            }
+        }
+
+        private static func playbackStatus(for status: NodePlaybackStatus) -> PlaybackStatus {
+            switch status {
+            case .playing:
+                return .playing
+            case .paused:
                 return .paused
+            case .loading:
+                return .loading
             case .stopped:
                 return .stopped
             }

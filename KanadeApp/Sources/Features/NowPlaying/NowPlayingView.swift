@@ -12,48 +12,28 @@ struct NowPlayingView: View {
     @State private var isAdjustingVolume = false
     @State private var dominantColor: Color = .clear
 
-    private var client: KanadeClient? { appState.client }
-    private var playbackState: PlaybackState? { client?.state }
-
     private var currentTrack: Track? {
-        guard let playbackState,
-              let currentIndex = playbackState.currentIndex,
-              playbackState.queue.indices.contains(currentIndex) else {
-            return nil
-        }
-
-        return playbackState.queue[currentIndex]
-    }
-
-    private var currentNode: Node? {
-        guard let playbackState else { return nil }
-
-        if let selectedNodeId = playbackState.selectedNodeId,
-           let selectedNode = playbackState.nodes.first(where: { $0.id == selectedNodeId }) {
-            return selectedNode
-        }
-
-        return playbackState.nodes.first(where: \.connected) ?? playbackState.nodes.first
+        appState.effectiveCurrentTrack
     }
 
     private var currentPosition: Double {
-        currentNode?.positionSecs ?? 0
+        appState.effectiveTransportState?.positionSecs ?? 0
     }
 
     private var currentVolume: Double {
-        Double(currentNode?.volume ?? 0)
+        Double(appState.effectiveTransportState?.volume ?? 0)
     }
 
     private var isPlaying: Bool {
-        currentNode?.status == .playing
+        appState.effectiveTransportState?.isPlayingLike ?? false
     }
 
     private var repeatMode: RepeatMode {
-        playbackState?.repeatMode ?? .off
+        appState.effectiveRepeatMode
     }
 
     private var shuffleEnabled: Bool {
-        playbackState?.shuffle ?? false
+        appState.effectiveShuffleEnabled
     }
 
     var body: some View {
@@ -118,7 +98,7 @@ struct NowPlayingView: View {
                         onEditingChanged: { editing in
                             isSeeking = editing
                             if !editing {
-                                client?.seek(to: seekPosition)
+                                appState.performSeek(to: seekPosition)
                             }
                         }
                     )
@@ -138,7 +118,7 @@ struct NowPlayingView: View {
 
                 HStack(spacing: 0) {
                     Button {
-                        client?.setShuffle(!shuffleEnabled)
+                        appState.performSetShuffle(!shuffleEnabled)
                     } label: {
                         Image(systemName: "shuffle")
                             .font(.title3)
@@ -151,7 +131,7 @@ struct NowPlayingView: View {
                     .frame(maxWidth: .infinity)
 
                     Button {
-                        client?.previous()
+                        appState.performPrevious()
                     } label: {
                         Image(systemName: "backward.fill")
                             .font(.title)
@@ -175,7 +155,7 @@ struct NowPlayingView: View {
                     .frame(maxWidth: .infinity)
 
                     Button {
-                        client?.next()
+                        appState.performNext()
                     } label: {
                         Image(systemName: "forward.fill")
                             .font(.title)
@@ -187,7 +167,7 @@ struct NowPlayingView: View {
                     .frame(maxWidth: .infinity)
 
                     Button {
-                        client?.setRepeat(nextRepeatMode)
+                        appState.performSetRepeat(nextRepeatMode)
                     } label: {
                         Image(systemName: repeatSymbolName)
                             .font(.title3)
@@ -215,7 +195,7 @@ struct NowPlayingView: View {
                         onEditingChanged: { editing in
                             isAdjustingVolume = editing
                             if !editing {
-                                client?.setVolume(Int(volumeValue.rounded()))
+                                appState.performSetVolume(Int(volumeValue.rounded()))
                                 syncVolumeValue()
                             }
                         }
@@ -257,7 +237,7 @@ struct NowPlayingView: View {
         }
         .onChange(of: volumeValue) {
             if isAdjustingVolume {
-                client?.setVolume(Int(volumeValue.rounded()))
+                appState.performSetVolume(Int(volumeValue.rounded()))
             }
         }
         #else
@@ -288,7 +268,7 @@ struct NowPlayingView: View {
         }
         .onChange(of: volumeValue) {
             if isAdjustingVolume {
-                client?.setVolume(Int(volumeValue.rounded()))
+                appState.performSetVolume(Int(volumeValue.rounded()))
             }
         }
         #endif
@@ -366,7 +346,7 @@ struct NowPlayingView: View {
                 onEditingChanged: { editing in
                     isSeeking = editing
                     if !editing {
-                        client?.seek(to: seekPosition)
+                        appState.performSeek(to: seekPosition)
                     }
                 }
             )
@@ -385,7 +365,7 @@ struct NowPlayingView: View {
     private var controlsSection: some View {
         HStack(spacing: 26) {
             Button {
-                client?.previous()
+                appState.performPrevious()
             } label: {
                 Image(systemName: "backward.fill")
                     .font(.title2)
@@ -403,7 +383,7 @@ struct NowPlayingView: View {
             .disabled(currentTrack == nil)
 
             Button {
-                client?.next()
+                appState.performNext()
             } label: {
                 Image(systemName: "forward.fill")
                     .font(.title2)
@@ -417,7 +397,7 @@ struct NowPlayingView: View {
     private var transportOptionsSection: some View {
         HStack(spacing: 16) {
             Button {
-                client?.setShuffle(!shuffleEnabled)
+                appState.performSetShuffle(!shuffleEnabled)
             } label: {
                 Image(systemName: "shuffle")
                     .font(.headline)
@@ -428,7 +408,7 @@ struct NowPlayingView: View {
             .buttonStyle(.plain)
 
             Button {
-                client?.setRepeat(nextRepeatMode)
+                appState.performSetRepeat(nextRepeatMode)
             } label: {
                 Image(systemName: repeatSymbolName)
                     .font(.headline)
@@ -453,7 +433,7 @@ struct NowPlayingView: View {
                     onEditingChanged: { editing in
                         isAdjustingVolume = editing
                         if !editing {
-                            client?.setVolume(Int(volumeValue.rounded()))
+                            appState.performSetVolume(Int(volumeValue.rounded()))
                             syncVolumeValue()
                         }
                     }
@@ -494,7 +474,6 @@ struct NowPlayingView: View {
     #if os(iOS)
     private func updateDominantColor() {
         guard let albumId = currentTrack?.albumId else {
-            dominantColor = .clear
             return
         }
         guard let cached = ArtworkCache.image(for: albumId) else { return }
@@ -571,9 +550,9 @@ struct NowPlayingView: View {
 
     private func togglePlayback() {
         if isPlaying {
-            client?.pause()
+            appState.performPause()
         } else {
-            client?.play()
+            appState.performPlay()
         }
     }
 

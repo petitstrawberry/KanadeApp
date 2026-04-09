@@ -28,7 +28,7 @@ struct NodesView: View {
             } else {
                 ForEach(nodes) { node in
                     Button {
-                        client?.selectNode(node.id)
+                        appState.performSelectNode(node.id)
                     } label: {
                         nodeRow(node)
                     }

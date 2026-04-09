@@ -16,13 +16,47 @@ enum ArtworkCache {
     }()
     static var tasks: [String: Task<PlatformImage?, Never>] = [:]
     static let lock = NSLock()
+    static let fileManager = FileManager.default
+
+    static var cacheDirectoryURL: URL {
+        let baseURL = fileManager.urls(for: .cachesDirectory, in: .userDomainMask).first ?? URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+        let directoryURL = baseURL.appendingPathComponent("KanadeArtwork", isDirectory: true)
+        if !fileManager.fileExists(atPath: directoryURL.path) {
+            try? fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        }
+        return directoryURL
+    }
+
+    static func cacheFileURL(for albumId: String) -> URL {
+        cacheDirectoryURL.appendingPathComponent(albumId).appendingPathExtension("img")
+    }
 
     static func image(for albumId: String) -> PlatformImage? {
-        shared.object(forKey: albumId as NSString)?.image
+        if let image = shared.object(forKey: albumId as NSString)?.image {
+            return image
+        }
+        guard let data = try? Data(contentsOf: cacheFileURL(for: albumId)) else {
+            return nil
+        }
+        #if canImport(UIKit)
+        guard let image = UIImage(data: data) else { return nil }
+        #elseif canImport(AppKit)
+        guard let image = NSImage(data: data) else { return nil }
+        #endif
+        setImage(image, for: albumId)
+        return image
     }
 
     static func setImage(_ image: PlatformImage, for albumId: String) {
         shared.setObject(PlatformImageWrapper(image), forKey: albumId as NSString)
+        #if canImport(UIKit)
+        let data = image.pngData()
+        #elseif canImport(AppKit)
+        let data = image.tiffRepresentation
+        #endif
+        if let data {
+            try? data.write(to: cacheFileURL(for: albumId), options: .atomic)
+        }
     }
 
     static func imageTask(
@@ -59,15 +93,12 @@ struct ArtworkView: View {
     @State private var loadedAlbumId: String?
 
     private var displayedArtworkImage: PlatformImage? {
-        if let artworkImage {
-            return artworkImage
+        if let albumId,
+           let cachedArtwork = ArtworkCache.image(for: albumId) {
+            return cachedArtwork
         }
 
-        guard let albumId else {
-            return nil
-        }
-
-        return ArtworkCache.image(for: albumId)
+        return artworkImage
     }
 
     private var taskKey: String {
@@ -95,11 +126,7 @@ struct ArtworkView: View {
     }
 
     private func loadArtwork() async {
-        guard let mediaClient, let albumId else {
-            await MainActor.run {
-                artworkImage = nil
-                loadedAlbumId = nil
-            }
+        guard let albumId else {
             return
         }
 
@@ -111,10 +138,8 @@ struct ArtworkView: View {
             return
         }
 
-        if loadedAlbumId != albumId {
-            await MainActor.run {
-                artworkImage = nil
-            }
+        guard let mediaClient else {
+            return
         }
 
         let task = ArtworkCache.imageTask(for: albumId) {
@@ -131,15 +156,18 @@ struct ArtworkView: View {
             }
         }
 
+        defer {
+            ArtworkCache.clearTask(for: albumId)
+        }
+
         if let platformImage = await task.value {
             ArtworkCache.setImage(platformImage, for: albumId)
             await MainActor.run {
+                guard self.albumId == albumId else { return }
                 artworkImage = platformImage
                 loadedAlbumId = albumId
             }
         }
-
-        ArtworkCache.clearTask(for: albumId)
     }
 
     @ViewBuilder

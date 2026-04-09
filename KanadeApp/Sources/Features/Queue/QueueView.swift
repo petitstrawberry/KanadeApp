@@ -6,7 +6,7 @@ struct QueueView: View {
 
     private var client: KanadeClient? { appState.client }
     private var queue: [Track] { client?.state?.queue ?? [] }
-    private var currentIndex: Int? { client?.state?.currentIndex }
+    private var currentIndex: Int? { appState.effectiveCurrentIndex }
 
     var body: some View {
         List {
@@ -19,7 +19,7 @@ struct QueueView: View {
             } else {
                 Section {
                     Button(role: .destructive) {
-                        client?.clearQueue()
+                        appState.performClearQueue()
                     } label: {
                         Label("Clear Queue", systemImage: "trash")
                             .frame(maxWidth: .infinity, alignment: .leading)
@@ -50,7 +50,7 @@ struct QueueView: View {
 
         HStack(spacing: 12) {
             Button {
-                client?.playIndex(index)
+                appState.performPlayIndex(index)
             } label: {
                 HStack(spacing: 12) {
                     ZStack {
@@ -107,7 +107,7 @@ struct QueueView: View {
         }
 
         Button(role: .destructive) {
-            client?.removeFromQueue(index)
+            appState.performRemoveFromQueue(index)
         } label: {
             Label("Remove", systemImage: "trash")
         }
@@ -119,14 +119,14 @@ struct QueueView: View {
 
     private func moveTracks(from offsets: IndexSet, to destination: Int) {
         guard let source = offsets.first, source != destination else { return }
-        client?.moveInQueue(from: source, to: destination)
+        appState.performMoveInQueue(from: source, to: destination)
     }
 
     private func playNext(_ index: Int) {
         let target = min((currentIndex ?? -1) + 1, queue.count)
         let adjustedTarget = index < target ? max(0, target - 1) : target
         guard index != adjustedTarget else { return }
-        client?.moveInQueue(from: index, to: adjustedTarget)
+        appState.performMoveInQueue(from: index, to: adjustedTarget)
     }
 
     private func formatDuration(_ seconds: Double) -> String {
@@ -145,14 +145,12 @@ private struct QueueTrackControls: View {
 
     @State private var isHovered = false
 
-    private var client: KanadeClient? { appState.client }
-
     var body: some View {
         Group {
             if isHovered {
                 HStack(spacing: 4) {
                     Button {
-                        client?.moveInQueue(from: index, to: index - 1)
+                        appState.performMoveInQueue(from: index, to: index - 1)
                     } label: {
                         Image(systemName: "chevron.up")
                             .font(.system(size: 10, weight: .semibold))
@@ -163,7 +161,7 @@ private struct QueueTrackControls: View {
                     .disabled(index == 0)
 
                     Button {
-                        client?.moveInQueue(from: index, to: index + 1)
+                        appState.performMoveInQueue(from: index, to: index + 1)
                     } label: {
                         Image(systemName: "chevron.down")
                             .font(.system(size: 10, weight: .semibold))
@@ -174,7 +172,7 @@ private struct QueueTrackControls: View {
                     .disabled(index >= queueCount - 1)
 
                     Button {
-                        client?.removeFromQueue(index)
+                        appState.performRemoveFromQueue(index)
                     } label: {
                         Image(systemName: "xmark")
                             .font(.system(size: 10, weight: .semibold))

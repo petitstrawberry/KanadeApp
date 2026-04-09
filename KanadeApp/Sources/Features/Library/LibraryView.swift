@@ -43,7 +43,7 @@ struct LibraryView: View {
                         ForEach(albums) { album in
                             AlbumTile(
                                 album: album,
-                                client: appState.client,
+                                appState: appState,
                                 mediaClient: appState.mediaClient,
                                 isInteractionEnabled: !isPinching,
                                 openAlbum: { selectedAlbum = album }
@@ -141,7 +141,7 @@ struct LibraryView: View {
 
 private struct AlbumTile: View {
     let album: Album
-    let client: KanadeClient?
+    let appState: AppState?
     let mediaClient: MediaClient?
     let isInteractionEnabled: Bool
     let openAlbum: () -> Void
@@ -220,18 +220,22 @@ private struct AlbumTile: View {
     }
 
     private func addAlbumToQueue() {
-        guard let client else { return }
+        guard let appState, let client = appState.client else { return }
         Task {
             guard let tracks = try? await client.getAlbumTracks(albumId: album.id) else { return }
-            client.addTracksToQueue(tracks)
+            await MainActor.run {
+                appState.performAddTracksToQueue(tracks)
+            }
         }
     }
 
     private func playAlbum() {
-        guard let client else { return }
+        guard let appState, let client = appState.client else { return }
         Task {
             guard let tracks = try? await client.getAlbumTracks(albumId: album.id) else { return }
-            client.replaceAndPlay(tracks: tracks, index: 0)
+            await MainActor.run {
+                appState.performReplaceAndPlay(tracks: tracks, index: 0)
+            }
         }
     }
 }

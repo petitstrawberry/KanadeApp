@@ -10,9 +10,13 @@ struct ContentView: View {
     @State private var sidebarSelection: SidebarItem? = .library
     @State private var showNowPlaying = false
 
+    private var shouldShowPlayerShell: Bool {
+        appState.isConnected || appState.shouldShowMiniPlayer || appState.isLocalPlaybackNode
+    }
+
     var body: some View {
         Group {
-            if appState.isConnected {
+            if shouldShowPlayerShell {
                 connectedContent
             } else {
                 ConnectionPrompt()

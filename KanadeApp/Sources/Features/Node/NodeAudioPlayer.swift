@@ -16,7 +16,16 @@ final class NodeAudioPlayer: @unchecked Sendable {
         let positionSecs: Double
         let volume: Int
         let mpdSongIndex: Int?
+        let currentTrackID: String?
         let projectionGeneration: Int?
+        let repeatMode: LocalRepeatMode
+        let shuffleEnabled: Bool
+    }
+
+    enum LocalRepeatMode: String, Sendable {
+        case off
+        case one
+        case all
     }
 
     private struct DecoderContext {
@@ -33,7 +42,6 @@ final class NodeAudioPlayer: @unchecked Sendable {
     private var delegateProxy: DelegateProxy
     private let clock = ContinuousClock()
     private var downloadedTempURLs: Set<URL> = []
-    private let mediaSession: (any OSMediaSession)?
 
     private var items: [QueueItem] = []
     private var currentIndex: Int?
@@ -42,40 +50,24 @@ final class NodeAudioPlayer: @unchecked Sendable {
     private var positionAnchor: Double = 0
     private var positionTimestamp: ContinuousClock.Instant?
     private var projectionGeneration: Int?
+    private var repeatMode: LocalRepeatMode = .off
+    private var shuffleEnabled = false
     private var playbackEpoch: UInt64 = 0
     private var suppressRebuildStoppedCallback = false
     private var requiresQueuePreparation = false
     private var decoderContexts: [ObjectIdentifier: DecoderContext] = [:]
     private var preparedDecoderIndices: Set<Int> = []
+    private var shuffledIndices: [Int] = []
+    private var shuffledCursor: Int?
 
     init() {
         player = AudioPlayer()
         delegateProxy = DelegateProxy(epoch: 0)
-        mediaSession = OSMediaSessionFactory.create()
         queue.setSpecific(key: queueKey, value: 1)
         delegateProxy.owner = self
         player.delegate = delegateProxy
         applyVolumeLocked(100)
         configureAudioSession()
-        setupMediaSessionHandlers()
-    }
-    
-    private func setupMediaSessionHandlers() {
-        guard let mediaSession else { return }
-        mediaSession.setCommandHandler(
-            play: { [weak self] in
-                self?.play()
-            },
-            pause: { [weak self] in
-                self?.pause()
-            },
-            stop: { [weak self] in
-                self?.stop()
-            },
-            seek: { [weak self] position in
-                self?.seek(to: position)
-            }
-        )
     }
 
     private func configureAudioSession() {
@@ -97,7 +89,10 @@ final class NodeAudioPlayer: @unchecked Sendable {
                 positionSecs: currentPositionLocked(),
                 volume: volume,
                 mpdSongIndex: currentIndex,
-                projectionGeneration: projectionGeneration
+                currentTrackID: currentIndex.flatMap { items.indices.contains($0) ? items[$0].trackID : nil },
+                projectionGeneration: projectionGeneration,
+                repeatMode: repeatMode,
+                shuffleEnabled: shuffleEnabled
             )
         }
     }
@@ -160,6 +155,10 @@ final class NodeAudioPlayer: @unchecked Sendable {
         queue.async { [weak self] in
             guard let self else { return }
             let clampedPosition = max(0, positionSecs)
+            let currentPosition = self.currentPositionLocked()
+            if abs(clampedPosition - currentPosition) < 0.1 {
+                return
+            }
             _ = self.player.seek(time: clampedPosition)
             self.positionAnchor = clampedPosition
             self.positionTimestamp = self.status == .playing ? self.clock.now : nil
@@ -167,10 +166,122 @@ final class NodeAudioPlayer: @unchecked Sendable {
         }
     }
 
+    func play(at index: Int) {
+        queue.async { [weak self] in
+            guard let self else { return }
+            guard self.items.indices.contains(index) else { return }
+            do {
+                try self.transitionToItemLocked(index)
+                if self.status == .paused || self.status == .stopped {
+                    try self.rebuildQueueLocked(startPosition: 0, shouldPlay: true)
+                }
+                self.notifyStateDidChange()
+            } catch {
+                self.handleError(error)
+            }
+        }
+    }
+
     func setVolume(_ volume: Int) {
         queue.async { [weak self] in
             guard let self else { return }
             self.applyVolumeLocked(volume)
+            self.notifyStateDidChange()
+        }
+    }
+
+    func next() {
+        queue.async { [weak self] in
+            guard let self else { return }
+            guard let targetIndex = self.nextIndexLocked(userInitiated: true) else { return }
+            do {
+                try self.transitionToItemLocked(targetIndex)
+                self.notifyStateDidChange()
+            } catch {
+                self.handleError(error)
+            }
+        }
+    }
+
+    func previous() {
+        queue.async { [weak self] in
+            guard let self else { return }
+            guard let currentIndex = self.currentIndex else { return }
+            if self.currentPositionLocked() >= 5 {
+                _ = self.player.seek(time: 0)
+                self.positionAnchor = 0
+                self.positionTimestamp = self.status == .playing ? self.clock.now : nil
+                self.notifyStateDidChange()
+                return
+            }
+
+            let targetIndex = self.previousIndexLocked(userInitiated: true) ?? currentIndex
+            do {
+                try self.transitionToItemLocked(targetIndex)
+                self.notifyStateDidChange()
+            } catch {
+                self.handleError(error)
+            }
+        }
+    }
+
+    func setRepeat(_ repeatMode: LocalRepeatMode) {
+        queue.async { [weak self] in
+            guard let self else { return }
+            self.repeatMode = repeatMode
+            self.notifyStateDidChange()
+        }
+    }
+
+    func setShuffle(_ enabled: Bool) {
+        queue.async { [weak self] in
+            guard let self else { return }
+            guard self.shuffleEnabled != enabled else { return }
+            self.shuffleEnabled = enabled
+            self.rebuildShuffleOrderLocked(anchoredAt: self.currentIndex)
+            self.notifyStateDidChange()
+        }
+    }
+
+    func replaceAndPlay(_ items: [QueueItem], at index: Int, projectionGeneration: Int = 0) {
+        queue.async { [weak self] in
+            guard let self else { return }
+            self.items = items
+            if items.isEmpty {
+                self.currentIndex = nil
+            } else {
+                self.currentIndex = min(max(index, 0), items.count - 1)
+            }
+            self.projectionGeneration = projectionGeneration
+            self.positionAnchor = 0
+            self.positionTimestamp = nil
+            self.status = .stopped
+            self.requiresQueuePreparation = !items.isEmpty
+            self.rebuildShuffleOrderLocked(anchoredAt: self.currentIndex)
+            self.resetPlayerForQueueMutationLocked()
+            do {
+                if !items.isEmpty {
+                    try self.rebuildQueueLocked(startPosition: 0, shouldPlay: true)
+                }
+                self.notifyStateDidChange()
+            } catch {
+                self.handleError(error)
+            }
+        }
+    }
+
+    func clearQueue() {
+        queue.async { [weak self] in
+            guard let self else { return }
+            self.items = []
+            self.currentIndex = nil
+            self.projectionGeneration = nil
+            self.positionAnchor = 0
+            self.positionTimestamp = nil
+            self.status = .stopped
+            self.requiresQueuePreparation = false
+            self.rebuildShuffleOrderLocked(anchoredAt: nil)
+            self.resetPlayerForQueueMutationLocked()
             self.notifyStateDidChange()
         }
     }
@@ -185,6 +296,7 @@ final class NodeAudioPlayer: @unchecked Sendable {
             self.positionTimestamp = nil
             self.status = .stopped
             self.requiresQueuePreparation = !items.isEmpty
+            self.rebuildShuffleOrderLocked(anchoredAt: self.currentIndex)
             self.resetPlayerForQueueMutationLocked()
             self.notifyStateDidChange()
         }
@@ -200,6 +312,7 @@ final class NodeAudioPlayer: @unchecked Sendable {
             if self.currentIndex == nil, !self.items.isEmpty {
                 self.currentIndex = 0
             }
+            self.rebuildShuffleOrderLocked(anchoredAt: self.currentIndex)
             do {
                 if previousStatus == .playing,
                    let currentIndex,
@@ -258,6 +371,8 @@ final class NodeAudioPlayer: @unchecked Sendable {
                 self.currentIndex = 0
             }
 
+            self.rebuildShuffleOrderLocked(anchoredAt: self.currentIndex)
+
             let currentTrackID = self.currentIndex.flatMap { self.items[$0].trackID }
             let shouldPreservePosition = previousCurrentTrackID == currentTrackID
             do {
@@ -304,6 +419,8 @@ final class NodeAudioPlayer: @unchecked Sendable {
                 }
             }
 
+            self.rebuildShuffleOrderLocked(anchoredAt: self.currentIndex)
+
             let currentTrackID = self.currentIndex.flatMap { self.items[$0].trackID }
             let shouldPreservePosition = previousCurrentTrackID == currentTrackID
             do {
@@ -344,6 +461,145 @@ final class NodeAudioPlayer: @unchecked Sendable {
         }
 
         return max(0, positionAnchor + Double(positionTimestamp.duration(to: clock.now).components.seconds))
+    }
+
+    private func rebuildShuffleOrderLocked(anchoredAt anchorIndex: Int?) {
+        guard shuffleEnabled else {
+            shuffledIndices = []
+            shuffledCursor = nil
+            return
+        }
+
+        let allIndices = Array(items.indices)
+        guard !allIndices.isEmpty else {
+            shuffledIndices = []
+            shuffledCursor = nil
+            return
+        }
+
+        if let anchorIndex, allIndices.contains(anchorIndex) {
+            var remaining = allIndices.filter { $0 != anchorIndex }
+            remaining.shuffle()
+            shuffledIndices = [anchorIndex] + remaining
+            shuffledCursor = 0
+            return
+        }
+
+        shuffledIndices = allIndices.shuffled()
+        shuffledCursor = shuffledIndices.isEmpty ? nil : 0
+    }
+
+    private func syncShuffleCursorLocked() {
+        guard shuffleEnabled else {
+            shuffledCursor = nil
+            return
+        }
+
+        let allIndices = Set(items.indices)
+        if Set(shuffledIndices) != allIndices || shuffledIndices.count != items.count {
+            rebuildShuffleOrderLocked(anchoredAt: currentIndex)
+            return
+        }
+
+        guard let currentIndex else {
+            shuffledCursor = nil
+            return
+        }
+
+        if let cursor = shuffledIndices.firstIndex(of: currentIndex) {
+            shuffledCursor = cursor
+        } else {
+            rebuildShuffleOrderLocked(anchoredAt: currentIndex)
+        }
+    }
+
+    private func nextIndexLocked(userInitiated: Bool) -> Int? {
+        guard !items.isEmpty else { return nil }
+        guard let currentIndex else { return items.startIndex }
+
+        if shuffleEnabled {
+            syncShuffleCursorLocked()
+            guard let shuffledCursor, shuffledIndices.indices.contains(shuffledCursor) else { return currentIndex }
+            let nextCursor = shuffledCursor + 1
+            if shuffledIndices.indices.contains(nextCursor) {
+                return shuffledIndices[nextCursor]
+            }
+            if !userInitiated, repeatMode == .one {
+                return currentIndex
+            }
+            if repeatMode == .all {
+                return shuffledIndices.first
+            }
+            return nil
+        }
+
+        let nextIndex = currentIndex + 1
+        if items.indices.contains(nextIndex) {
+            return nextIndex
+        }
+        if !userInitiated, repeatMode == .one {
+            return currentIndex
+        }
+        if repeatMode == .all {
+            return items.startIndex
+        }
+        return nil
+    }
+
+    private func previousIndexLocked(userInitiated: Bool) -> Int? {
+        guard !items.isEmpty else { return nil }
+        guard let currentIndex else { return items.startIndex }
+
+        if shuffleEnabled {
+            syncShuffleCursorLocked()
+            guard let shuffledCursor, shuffledIndices.indices.contains(shuffledCursor) else { return currentIndex }
+            let previousCursor = shuffledCursor - 1
+            if shuffledIndices.indices.contains(previousCursor) {
+                return shuffledIndices[previousCursor]
+            }
+            if !userInitiated, repeatMode == .one {
+                return currentIndex
+            }
+            if repeatMode == .all {
+                return shuffledIndices.last
+            }
+            return nil
+        }
+
+        let previousIndex = currentIndex - 1
+        if items.indices.contains(previousIndex) {
+            return previousIndex
+        }
+        if !userInitiated, repeatMode == .one {
+            return currentIndex
+        }
+        if repeatMode == .all {
+            return items.endIndex - 1
+        }
+        return nil
+    }
+
+    private func transitionToItemLocked(_ index: Int) throws {
+        guard items.indices.contains(index) else { return }
+
+        let previousStatus = status
+        currentIndex = index
+        syncShuffleCursorLocked()
+        positionAnchor = 0
+        positionTimestamp = nil
+
+        switch previousStatus {
+        case .playing, .loading:
+            try rebuildQueueLocked(startPosition: 0, shouldPlay: true)
+        case .paused:
+            requiresQueuePreparation = true
+            _ = resetPlayerForQueueMutationLocked()
+            status = .paused
+        case .stopped:
+            requiresQueuePreparation = true
+            _ = resetPlayerForQueueMutationLocked()
+            status = .stopped
+        }
     }
 
     private func setPlaybackStateLocked(_ newStatus: NodePlaybackStatus) {
@@ -431,12 +687,18 @@ final class NodeAudioPlayer: @unchecked Sendable {
     @discardableResult
     private func advanceToNextItemLocked(epoch: UInt64) -> Bool {
         guard let currentIndex else { return false }
-        let nextIndex = currentIndex + 1
-        guard items.indices.contains(nextIndex) else { return false }
+        guard let nextIndex = nextIndexLocked(userInitiated: false) else { return false }
 
         self.currentIndex = nextIndex
+        syncShuffleCursorLocked()
         positionAnchor = 0
         positionTimestamp = status == .playing ? clock.now : nil
+
+        guard nextIndex == currentIndex + 1 else {
+            requiresQueuePreparation = true
+            return true
+        }
+
         do {
             try prepareDecoderIfNeededLocked(at: nextIndex, epoch: epoch)
             requiresQueuePreparation = false
@@ -559,29 +821,7 @@ final class NodeAudioPlayer: @unchecked Sendable {
     }
 
     private func notifyStateDidChange() {
-        updateNowPlayingInfo()
         stateDidChange?()
-    }
-    
-    private func updateNowPlayingInfo() {
-        guard let mediaSession else { return }
-        
-        guard let currentIndex, items.indices.contains(currentIndex) else {
-            mediaSession.clearNowPlaying()
-            return
-        }
-        
-        let position = currentPositionLocked()
-
-        mediaSession.updateNowPlaying(
-            title: "Track \(currentIndex + 1)",
-            artist: nil,
-            album: nil,
-            duration: nil,
-            elapsedTime: position
-        )
-        
-        mediaSession.updatePlaybackState(isPlaying: status == .playing)
     }
 
     fileprivate func handlePlaybackStateChange(_ playbackState: AudioPlayer.PlaybackState, epoch: UInt64?) {

@@ -38,9 +38,9 @@ struct SearchView: View {
             } else {
                 Section("Results") {
                     ForEach(Array(results.enumerated()), id: \.element.id) { index, track in
-                        TrackRow(track: track, isPlaying: currentTrackId == track.id) {
+                        TrackRow(track: track, isPlaying: currentTrackId == track.id, onTap: {
                             playTrack(at: index)
-                        }
+                        }, appState: appState)
                     }
                 }
             }
@@ -128,9 +128,9 @@ struct SearchView: View {
         let queue = client.state?.queue ?? []
 
         if queue.map(\.id) == results.map(\.id) {
-            client.playIndex(index)
+            appState.performPlayIndex(index)
         } else {
-            client.replaceAndPlay(tracks: results, index: index)
+            appState.performReplaceAndPlay(tracks: results, index: index)
         }
     }
 }

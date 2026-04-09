@@ -5,7 +5,7 @@ struct TrackRow: View {
     let track: Track
     let isPlaying: Bool
     let onTap: () -> Void
-    var client: KanadeClient?
+    var appState: AppState?
 
     @State private var isHovered = false
 
@@ -55,9 +55,9 @@ struct TrackRow: View {
             }
             .buttonStyle(.plain)
 
-            if isHovered && client != nil {
+            if isHovered && appState != nil {
                 Button {
-                    client?.addToQueue(track)
+                    appState?.performAddToQueue(track)
                 } label: {
                     Image(systemName: "plus")
                         .font(.system(size: 14, weight: .bold))

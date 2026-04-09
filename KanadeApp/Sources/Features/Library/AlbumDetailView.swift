@@ -26,7 +26,7 @@ struct AlbumDetailView: View {
                             ForEach(Array(tracks.enumerated()), id: \.element.id) { index, track in
                                 TrackRow(track: track, isPlaying: currentTrackId == track.id, onTap: {
                                     playTrack(at: index)
-                                }, client: appState.client)
+                                }, appState: appState)
                             }
                         }
                     }
@@ -61,7 +61,7 @@ struct AlbumDetailView: View {
                 if !tracks.isEmpty {
                     HStack(spacing: 10) {
                         Button {
-                            appState.client?.replaceAndPlay(tracks: tracks, index: 0)
+                            appState.performReplaceAndPlay(tracks: tracks, index: 0)
                         } label: {
                             Label("Play", systemImage: "play.fill")
                                 .font(.subheadline.weight(.semibold))
@@ -70,7 +70,7 @@ struct AlbumDetailView: View {
                         .controlSize(.small)
 
                         Button {
-                            appState.client?.addTracksToQueue(tracks)
+                            appState.performAddTracksToQueue(tracks)
                         } label: {
                             Label("Add", systemImage: "plus")
                                 .font(.subheadline.weight(.semibold))
@@ -123,9 +123,9 @@ struct AlbumDetailView: View {
         let queue = client.state?.queue ?? []
 
         if queue.map(\.id) == tracks.map(\.id) {
-            client.playIndex(index)
+            appState.performPlayIndex(index)
         } else {
-            client.replaceAndPlay(tracks: tracks, index: index)
+            appState.performReplaceAndPlay(tracks: tracks, index: index)
         }
     }
 }
