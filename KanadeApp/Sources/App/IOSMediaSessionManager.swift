@@ -92,6 +92,8 @@ final class IOSMediaSessionManager {
         
         updateCommandAvailability(snapshot)
 
+        refreshTransportState(snapshot: snapshot)
+
         if shouldRefreshNowPlaying {
             refreshNowPlayingInfo(snapshot: snapshot)
         }
@@ -195,12 +197,6 @@ final class IOSMediaSessionManager {
     private func refreshNowPlayingInfo(snapshot: Snapshot) {
         guard let track = snapshot.track else {
             guard snapshot.shouldClearNowPlayingInfo else {
-                var nowPlayingInfo = nowPlayingInfoCenter.nowPlayingInfo ?? [:]
-                nowPlayingInfo[MPNowPlayingInfoPropertyElapsedPlaybackTime] = max(snapshot.positionSecs, 0)
-                nowPlayingInfo[MPNowPlayingInfoPropertyPlaybackRate] = snapshot.isPlayingLike ? 1.0 : 0.0
-                nowPlayingInfo[MPNowPlayingInfoPropertyDefaultPlaybackRate] = 1.0
-                nowPlayingInfoCenter.nowPlayingInfo = nowPlayingInfo
-                nowPlayingInfoCenter.playbackState = snapshot.nowPlayingPlaybackState
                 return
             }
             nowPlayingInfoCenter.nowPlayingInfo = nil
@@ -236,9 +232,6 @@ final class IOSMediaSessionManager {
             nowPlayingInfo[MPNowPlayingInfoPropertyElapsedPlaybackTime] = max(snapshot.positionSecs, 0)
         }
 
-        nowPlayingInfo[MPNowPlayingInfoPropertyPlaybackRate] = snapshot.isPlayingLike ? 1.0 : 0.0
-        nowPlayingInfo[MPNowPlayingInfoPropertyDefaultPlaybackRate] = 1.0
-
         if let albumId = track.albumId,
            let image = ArtworkCache.image(for: albumId) {
             nowPlayingInfo[MPMediaItemPropertyArtwork] = MPMediaItemArtwork(boundsSize: image.size) { _ in image }
@@ -248,6 +241,20 @@ final class IOSMediaSessionManager {
             }
         }
 
+        nowPlayingInfoCenter.nowPlayingInfo = nowPlayingInfo
+        refreshTransportState(snapshot: snapshot)
+    }
+
+    private func refreshTransportState(snapshot: Snapshot) {
+        guard !snapshot.shouldClearNowPlayingInfo else {
+            nowPlayingInfoCenter.playbackState = .stopped
+            return
+        }
+
+        var nowPlayingInfo = nowPlayingInfoCenter.nowPlayingInfo ?? [:]
+        nowPlayingInfo[MPNowPlayingInfoPropertyElapsedPlaybackTime] = max(snapshot.positionSecs, 0)
+        nowPlayingInfo[MPNowPlayingInfoPropertyPlaybackRate] = snapshot.isPlayingLike ? 1.0 : 0.0
+        nowPlayingInfo[MPNowPlayingInfoPropertyDefaultPlaybackRate] = 1.0
         nowPlayingInfoCenter.nowPlayingInfo = nowPlayingInfo
         nowPlayingInfoCenter.playbackState = snapshot.nowPlayingPlaybackState
     }

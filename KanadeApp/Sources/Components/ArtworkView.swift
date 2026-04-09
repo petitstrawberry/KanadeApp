@@ -32,9 +32,10 @@ enum ArtworkCache {
     }
 
     static func image(for albumId: String) -> PlatformImage? {
-        if let image = shared.object(forKey: albumId as NSString)?.image {
-            return image
-        }
+        shared.object(forKey: albumId as NSString)?.image
+    }
+
+    static func loadImageFromDisk(for albumId: String) -> PlatformImage? {
         guard let data = try? Data(contentsOf: cacheFileURL(for: albumId)) else {
             return nil
         }
@@ -43,19 +44,26 @@ enum ArtworkCache {
         #elseif canImport(AppKit)
         guard let image = NSImage(data: data) else { return nil }
         #endif
-        setImage(image, for: albumId)
+        shared.setObject(PlatformImageWrapper(image), forKey: albumId as NSString)
         return image
     }
 
     static func setImage(_ image: PlatformImage, for albumId: String) {
         shared.setObject(PlatformImageWrapper(image), forKey: albumId as NSString)
-        #if canImport(UIKit)
-        let data = image.pngData()
-        #elseif canImport(AppKit)
-        let data = image.tiffRepresentation
-        #endif
-        if let data {
-            try? data.write(to: cacheFileURL(for: albumId), options: .atomic)
+        persistImageToDisk(image, for: albumId)
+    }
+
+    private static func persistImageToDisk(_ image: PlatformImage, for albumId: String) {
+        let fileURL = cacheFileURL(for: albumId)
+        DispatchQueue.global(qos: .utility).async {
+            #if canImport(UIKit)
+            let data = image.pngData()
+            #elseif canImport(AppKit)
+            let data = image.tiffRepresentation
+            #endif
+            if let data {
+                try? data.write(to: fileURL, options: .atomic)
+            }
         }
     }
 
@@ -133,6 +141,25 @@ struct ArtworkView: View {
         if let cached = ArtworkCache.image(for: albumId) {
             await MainActor.run {
                 artworkImage = cached
+                loadedAlbumId = albumId
+            }
+            return
+        }
+
+        let diskTask = ArtworkCache.imageTask(for: "disk:\(albumId)") {
+            Task.detached(priority: .utility) {
+                ArtworkCache.loadImageFromDisk(for: albumId)
+            }
+        }
+
+        defer {
+            ArtworkCache.clearTask(for: "disk:\(albumId)")
+        }
+
+        if let diskImage = await diskTask.value {
+            await MainActor.run {
+                guard self.albumId == albumId else { return }
+                artworkImage = diskImage
                 loadedAlbumId = albumId
             }
             return
