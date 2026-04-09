@@ -7,6 +7,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 @property(nonatomic, readonly, copy) NSURL *url;
 @property(nonatomic, readonly, copy, nullable) NSString *mimeTypeHint;
+@property(nonatomic, readonly, copy, nullable) NSURL *tempFileURL;
 
 - (instancetype)init NS_UNAVAILABLE;
 - (instancetype)initWithURL:(NSURL *)url mimeTypeHint:(nullable NSString *)mimeTypeHint;
