@@ -86,16 +86,7 @@ struct AlbumDetailView: View {
     }
 
     private var currentTrackId: String? {
-        guard
-            let client = appState.client,
-            let state = client.state,
-            let currentIndex = state.currentIndex,
-            state.queue.indices.contains(currentIndex)
-        else {
-            return nil
-        }
-
-        return state.queue[currentIndex].id
+        appState.effectiveCurrentTrack?.id
     }
 
     private func loadTracks() async {
@@ -118,9 +109,9 @@ struct AlbumDetailView: View {
     }
 
     private func playTrack(at index: Int) {
-        guard let client = appState.client, tracks.indices.contains(index) else { return }
+        guard tracks.indices.contains(index) else { return }
 
-        let queue = client.state?.queue ?? []
+        let queue = appState.effectiveQueue
 
         if queue.map(\.id) == tracks.map(\.id) {
             appState.performPlayIndex(index)

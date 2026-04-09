@@ -11,7 +11,7 @@ struct ContentView: View {
     @State private var showNowPlaying = false
 
     private var shouldShowPlayerShell: Bool {
-        appState.isConnected || appState.shouldShowMiniPlayer || appState.isLocalPlaybackNode
+        appState.isConnected || appState.shouldShowMiniPlayer
     }
 
     var body: some View {

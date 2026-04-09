@@ -165,9 +165,9 @@ struct PluginFormPreview: View {
                                 id: "api_key",
                                 type: .text,
                                 label: "API Key",
+                                value: "",
                                 placeholder: "Enter API key",
-                                secure: true,
-                                value: ""
+                                secure: true
                             ),
                             PluginFormField(
                                 id: "enabled",
@@ -179,17 +179,17 @@ struct PluginFormPreview: View {
                                 id: "priority",
                                 type: .select,
                                 label: "Priority",
-                                options: ["Low", "Normal", "High"],
-                                value: "Normal"
+                                value: "Normal",
+                                options: ["Low", "Normal", "High"]
                             ),
                             PluginFormField(
                                 id: "timeout",
                                 type: .number,
                                 label: "Timeout (seconds)",
+                                value: "30",
                                 placeholder: "30",
                                 min: 1,
-                                max: 300,
-                                value: "30"
+                                max: 300
                             )
                         ]
                     )

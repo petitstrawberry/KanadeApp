@@ -59,16 +59,7 @@ struct SearchView: View {
     }
 
     private var currentTrackId: String? {
-        guard
-            let client = appState.client,
-            let state = client.state,
-            let currentIndex = state.currentIndex,
-            state.queue.indices.contains(currentIndex)
-        else {
-            return nil
-        }
-
-        return state.queue[currentIndex].id
+        appState.effectiveCurrentTrack?.id
     }
 
     private func runImmediateSearch() {
@@ -123,9 +114,9 @@ struct SearchView: View {
     }
 
     private func playTrack(at index: Int) {
-        guard let client = appState.client, results.indices.contains(index) else { return }
+        guard results.indices.contains(index) else { return }
 
-        let queue = client.state?.queue ?? []
+        let queue = appState.effectiveQueue
 
         if queue.map(\.id) == results.map(\.id) {
             appState.performPlayIndex(index)

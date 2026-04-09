@@ -4,8 +4,7 @@ import KanadeKit
 struct QueueView: View {
     @Environment(AppState.self) private var appState
 
-    private var client: KanadeClient? { appState.client }
-    private var queue: [Track] { client?.state?.queue ?? [] }
+    private var queue: [Track] { appState.effectiveQueue }
     private var currentIndex: Int? { appState.effectiveCurrentIndex }
 
     var body: some View {
