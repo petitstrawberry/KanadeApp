@@ -37,7 +37,7 @@ let project = Project(
             name: "KanadeAppMac",
             platform: .macOS,
             product: .app,
-            bundleId: "com.petitstrawberry.KanadeAppMac",
+            bundleId: "dev.ichigo.KanadeAppMac",
             deploymentTarget: DeploymentTarget.macOS(targetVersion: "26.0"),
             infoPlist: .extendingDefault(
                 with: [
@@ -57,7 +57,7 @@ let project = Project(
             name: "KanadeAppTests",
             platform: .iOS,
             product: .unitTests,
-            bundleId: "com.petitstrawberry.KanadeAppTests",
+            bundleId: "dev.ichigo.KanadeAppTests",
             infoPlist: .default,
             sources: ["KanadeApp/Tests/**"],
             dependencies: [
