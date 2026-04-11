@@ -17,15 +17,24 @@ struct NowPlayingView: View {
     }
 
     private var currentPosition: Double {
-        appState.effectiveTransportState?.positionSecs ?? 0
+        if appState.playbackMode == .local {
+            return appState.localPositionSecs
+        }
+        return appState.effectiveTransportState?.positionSecs ?? 0
     }
 
     private var currentVolume: Double {
-        Double(appState.effectiveTransportState?.volume ?? 0)
+        if appState.playbackMode == .local {
+            return Double(appState.localVolume)
+        }
+        return Double(appState.effectiveTransportState?.volume ?? 0)
     }
 
     private var isPlaying: Bool {
-        appState.effectiveTransportState?.isPlayingLike ?? false
+        if appState.playbackMode == .local {
+            return appState.localIsPlaying
+        }
+        return appState.effectiveTransportState?.isPlayingLike ?? false
     }
 
     private var repeatMode: RepeatMode {
@@ -209,6 +218,9 @@ struct NowPlayingView: View {
                 .padding(.horizontal, 32)
             }
 
+            outputPickerRow
+                .padding(.horizontal, 32)
+
             Spacer(minLength: 0)
         }
         .padding(.bottom, 32)
@@ -273,6 +285,47 @@ struct NowPlayingView: View {
         }
         #endif
     }
+
+    #if os(iOS)
+    @ViewBuilder
+    private var outputPickerRow: some View {
+        let isLocal = appState.playbackMode == .local
+        HStack(spacing: 12) {
+            Image(systemName: isLocal ? "headphones" : "airplayaudio")
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(.white.opacity(0.6))
+
+            Menu {
+                OutputPickerMenuContent()
+            } label: {
+                Text(outputName)
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(.white.opacity(0.8))
+            }
+            .menuStyle(.borderlessButton)
+
+            Spacer()
+
+            Circle()
+                .fill(.white.opacity(0.3))
+                .frame(width: 6, height: 6)
+        }
+    }
+
+    private var outputName: String {
+        if appState.playbackMode == .local {
+            return UIDevice.current.name
+        }
+        if let nodeId = appState.client?.state?.selectedNodeId,
+           let node = appState.client?.state?.nodes.first(where: { $0.id == nodeId }) {
+            return node.name
+        }
+        if let node = appState.client?.state?.nodes.first(where: \.connected) {
+            return node.name
+        }
+        return "No Output"
+    }
+    #endif
 
     #if os(macOS)
     private var artworkColumn: some View {
@@ -420,6 +473,18 @@ struct NowPlayingView: View {
 
             Spacer()
 
+            Menu {
+                OutputPickerMenuContent()
+            } label: {
+                Image(systemName: appState.playbackMode == .local ? "headphones" : "airplayaudio")
+                    .font(.headline)
+                    .foregroundStyle(.secondary)
+                    .frame(width: 36, height: 36)
+                    .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 10))
+            }
+            .menuStyle(.borderlessButton)
+            .buttonStyle(.plain)
+
             HStack(spacing: 8) {
                 Image(systemName: "speaker.fill")
                     .foregroundStyle(.secondary)
@@ -448,7 +513,10 @@ struct NowPlayingView: View {
     #endif
 
     private var sliderDuration: Double {
-        max(currentTrack?.durationSecs ?? 0, 1)
+        if appState.playbackMode == .local {
+            return max(appState.localDurationSecs, currentTrack?.durationSecs ?? 0, 1)
+        }
+        return max(currentTrack?.durationSecs ?? 0, 1)
     }
 
     private var nextRepeatMode: RepeatMode {

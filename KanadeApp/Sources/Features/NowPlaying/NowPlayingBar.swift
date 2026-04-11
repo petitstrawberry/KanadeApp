@@ -21,19 +21,31 @@ struct NowPlayingBar: View {
     }
 
     private var isPlaying: Bool {
-        appState.effectiveTransportState?.isPlayingLike ?? false
+        if appState.playbackMode == .local {
+            return appState.localIsPlaying
+        }
+        return appState.effectiveTransportState?.isPlayingLike ?? false
     }
 
     private var currentPosition: Double {
-        appState.effectiveTransportState?.positionSecs ?? 0
+        if appState.playbackMode == .local {
+            return appState.localPositionSecs
+        }
+        return appState.effectiveTransportState?.positionSecs ?? 0
     }
 
     private var currentVolume: Double {
-        Double(appState.effectiveTransportState?.volume ?? 0)
+        if appState.playbackMode == .local {
+            return Double(appState.localVolume)
+        }
+        return Double(appState.effectiveTransportState?.volume ?? 0)
     }
 
     private var sliderDuration: Double {
-        max(currentTrack?.durationSecs ?? 0, 1)
+        if appState.playbackMode == .local {
+            return max(appState.localDurationSecs, currentTrack?.durationSecs ?? 0, 1)
+        }
+        return max(currentTrack?.durationSecs ?? 0, 1)
     }
 
     private var repeatMode: RepeatMode {
@@ -90,6 +102,8 @@ struct NowPlayingBar: View {
 
             Spacer()
 
+            compactOutputButton
+
             Button {
                 togglePlayback()
             } label: {
@@ -104,6 +118,19 @@ struct NowPlayingBar: View {
         .frame(maxWidth: .infinity)
         .frame(height: 60)
         .modifier(PlacementBackgroundModifier(placement: placement))
+    }
+
+    @ViewBuilder
+    private var compactOutputButton: some View {
+        @Bindable var appState = appState
+        Menu {
+            OutputPickerMenuContent()
+        } label: {
+            Image(systemName: appState.playbackMode == .local ? "headphones" : "airplayaudio")
+                .font(.system(size: 13))
+                .foregroundStyle(.secondary)
+        }
+        .menuStyle(.borderlessButton)
     }
 
     private func fullContent(currentTrack: Track) -> some View {
@@ -263,6 +290,8 @@ struct NowPlayingBar: View {
         HStack(spacing: 12) {
             Spacer()
 
+            outputPickerButton
+
             HStack(spacing: 8) {
                 Image(systemName: "speaker.fill")
                     .font(.system(size: 12))
@@ -290,6 +319,21 @@ struct NowPlayingBar: View {
             }
         }
         .frame(maxWidth: .infinity)
+    }
+
+    @ViewBuilder
+    private var outputPickerButton: some View {
+        @Bindable var appState = appState
+        Menu {
+            OutputPickerMenuContent()
+        } label: {
+            Image(systemName: appState.playbackMode == .local ? "headphones" : "airplayaudio")
+                .font(.system(size: 14))
+                .foregroundStyle(.secondary)
+                .frame(width: 32, height: 32)
+                .background(Circle().fill(.quaternary.opacity(0.6)))
+        }
+        .menuStyle(.borderlessButton)
     }
 
     @ViewBuilder

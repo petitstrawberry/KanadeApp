@@ -1,6 +1,11 @@
 import SwiftUI
 import KanadeKit
 
+enum PlaybackMode {
+    case remote
+    case local
+}
+
 @MainActor
 @Observable
 final class AppState {
@@ -37,6 +42,8 @@ final class AppState {
 
     var client: KanadeClient?
     var mediaClient: MediaClient?
+    var playbackMode: PlaybackMode = .remote
+    var localPlayback: LocalPlaybackController?
     var lastKnownQueue: [Track] = []
     var lastKnownCurrentIndex: Int?
     var lastKnownRepeatMode: RepeatMode = .off
@@ -80,10 +87,13 @@ final class AppState {
     }
 
     var shouldShowMiniPlayer: Bool {
-        isConnected && effectiveCurrentTrack != nil
+        (playbackMode == .local || isConnected) && effectiveCurrentTrack != nil
     }
 
     var effectiveQueue: [Track] {
+        if playbackMode == .local {
+            return localPlayback?.queue.tracks ?? []
+        }
         if let queue = client?.state?.queue, !queue.isEmpty {
             return queue
         }
@@ -95,6 +105,9 @@ final class AppState {
     }
 
     var effectiveCurrentIndex: Int? {
+        if playbackMode == .local {
+            return localPlayback?.queue.currentIndex
+        }
         if let currentIndex = client?.state?.currentIndex {
             return currentIndex
         }
@@ -110,6 +123,13 @@ final class AppState {
     }
 
     var effectiveTransportState: EffectiveTransportState? {
+        if playbackMode == .local, let localPlayback {
+            return EffectiveTransportState(
+                positionSecs: localPlayback.positionSecs,
+                status: localPlayback.renderer.state.status,
+                volume: localPlayback.volume
+            )
+        }
         guard let node = selectedPlaybackNode else { return nil }
         return EffectiveTransportState(
             positionSecs: node.positionSecs,
@@ -119,6 +139,9 @@ final class AppState {
     }
 
     var effectiveRepeatMode: RepeatMode {
+        if playbackMode == .local {
+            return localPlayback?.queue.repeatMode ?? .off
+        }
         if let repeatMode = client?.state?.repeatMode {
             return repeatMode
         }
@@ -126,11 +149,20 @@ final class AppState {
     }
 
     var effectiveShuffleEnabled: Bool {
+        if playbackMode == .local {
+            return localPlayback?.queue.shuffleEnabled ?? false
+        }
         if let shuffleEnabled = client?.state?.shuffle {
             return shuffleEnabled
         }
         return lastKnownShuffleEnabled
     }
+
+    var localCurrentTrack: Track? { localPlayback?.currentTrack }
+    var localPositionSecs: Double { localPlayback?.positionSecs ?? 0 }
+    var localDurationSecs: Double { localPlayback?.durationSecs ?? 0 }
+    var localIsPlaying: Bool { localPlayback?.isPlaying ?? false }
+    var localVolume: Int { localPlayback?.volume ?? 0 }
 
     var effectivePlaybackState: EffectivePlaybackState {
         EffectivePlaybackState(
@@ -182,11 +214,19 @@ final class AppState {
     }
 
     func performPlay() {
-        client?.play()
+        if playbackMode == .local {
+            localPlayback?.play()
+        } else {
+            client?.play()
+        }
     }
 
     func performPause() {
-        client?.pause()
+        if playbackMode == .local {
+            localPlayback?.pause()
+        } else {
+            client?.pause()
+        }
     }
 
     func performTogglePlayPause() {
@@ -198,35 +238,67 @@ final class AppState {
     }
 
     func performSeek(to positionSecs: Double) {
-        client?.seek(to: positionSecs)
+        if playbackMode == .local {
+            localPlayback?.seek(to: positionSecs)
+        } else {
+            client?.seek(to: positionSecs)
+        }
     }
 
     func performSetVolume(_ volume: Int) {
-        client?.setVolume(volume)
+        if playbackMode == .local {
+            localPlayback?.setVolume(volume)
+        } else {
+            client?.setVolume(volume)
+        }
     }
 
     func performNext() {
-        client?.next()
+        if playbackMode == .local {
+            localPlayback?.next()
+        } else {
+            client?.next()
+        }
     }
 
     func performPrevious() {
-        client?.previous()
+        if playbackMode == .local {
+            localPlayback?.previous()
+        } else {
+            client?.previous()
+        }
     }
 
     func performSetRepeat(_ repeatMode: RepeatMode) {
-        client?.setRepeat(repeatMode)
+        if playbackMode == .local {
+            localPlayback?.setRepeat(repeatMode)
+        } else {
+            client?.setRepeat(repeatMode)
+        }
     }
 
     func performSetShuffle(_ enabled: Bool) {
-        client?.setShuffle(enabled)
+        if playbackMode == .local {
+            localPlayback?.setShuffle(enabled)
+        } else {
+            client?.setShuffle(enabled)
+        }
     }
 
     func performPlayIndex(_ index: Int) {
-        client?.playIndex(index)
+        if playbackMode == .local {
+            localPlayback?.jumpToIndex(index)
+        } else {
+            client?.playIndex(index)
+        }
     }
 
     func performReplaceAndPlay(tracks: [Track], index: Int) {
-        client?.replaceAndPlay(tracks: tracks, index: index)
+        if playbackMode == .local {
+            localPlayback?.playTracks(tracks, startIndex: index)
+        } else {
+            client?.replaceAndPlay(tracks: tracks, index: index)
+        }
     }
 
     func performAddToQueue(_ track: Track) {
@@ -234,23 +306,76 @@ final class AppState {
     }
 
     func performAddTracksToQueue(_ tracks: [Track]) {
-        client?.addTracksToQueue(tracks)
+        if playbackMode == .local {
+            localPlayback?.addTracksToQueue(tracks)
+        } else {
+            client?.addTracksToQueue(tracks)
+        }
     }
 
     func performRemoveFromQueue(_ index: Int) {
-        client?.removeFromQueue(index)
+        if playbackMode == .local {
+            localPlayback?.removeFromQueue(index)
+        } else {
+            client?.removeFromQueue(index)
+        }
     }
 
     func performMoveInQueue(from sourceIndex: Int, to destinationIndex: Int) {
-        client?.moveInQueue(from: sourceIndex, to: destinationIndex)
+        if playbackMode == .local {
+            localPlayback?.moveInQueue(from: sourceIndex, to: destinationIndex)
+        } else {
+            client?.moveInQueue(from: sourceIndex, to: destinationIndex)
+        }
     }
 
     func performClearQueue() {
-        client?.clearQueue()
+        if playbackMode == .local {
+            localPlayback?.clearQueue()
+        } else {
+            client?.clearQueue()
+        }
     }
 
     func performSelectNode(_ nodeId: String) {
         client?.selectNode(nodeId)
+    }
+
+    func startLocalPlayback() {
+        if localPlayback == nil {
+            localPlayback = LocalPlaybackController(mediaClient: mediaClient)
+        }
+        playbackMode = .local
+    }
+
+    func stopLocalPlayback() {
+        localPlayback?.stop()
+        localPlayback = nil
+        playbackMode = .remote
+    }
+
+    func switchToLocal(tracks: [Track], index: Int, positionSecs: Double?) {
+        startLocalPlayback()
+        localPlayback?.importFromServer(tracks: tracks, index: index, positionSecs: positionSecs)
+    }
+
+    func switchToRemote(nodeId: String?) {
+        guard playbackMode == .local, let exported = localPlayback?.exportForHandoff() else {
+            if let nodeId {
+                client?.selectNode(nodeId)
+            }
+            playbackMode = .remote
+            return
+        }
+
+        if !exported.tracks.isEmpty {
+            client?.replaceAndPlay(tracks: exported.tracks, index: exported.index ?? 0)
+            client?.seek(to: exported.positionSecs)
+        }
+        if let nodeId {
+            client?.selectNode(nodeId)
+        }
+        stopLocalPlayback()
     }
 
     private func persistConnectionSettings() {
