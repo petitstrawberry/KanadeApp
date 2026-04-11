@@ -44,6 +44,7 @@ final class AppState {
     var mediaClient: MediaClient?
     var playbackMode: PlaybackMode = .remote
     var localPlayback: LocalPlaybackController?
+    var localNodeId: String?
     var lastKnownQueue: [Track] = []
     var lastKnownCurrentIndex: Int?
     var lastKnownRepeatMode: RepeatMode = .off
@@ -90,9 +91,17 @@ final class AppState {
         (playbackMode == .local || isConnected) && effectiveCurrentTrack != nil
     }
 
+    private var serverHasPerNodeQueue: Bool {
+        guard let state = client?.state else { return false }
+        return state.nodes.first?.queue != nil
+    }
+
     var effectiveQueue: [Track] {
         if playbackMode == .local {
             return localPlayback?.queue.tracks ?? []
+        }
+        if let node = selectedPlaybackNode, let queue = node.queue {
+            return queue
         }
         if let queue = client?.state?.queue, !queue.isEmpty {
             return queue
@@ -107,6 +116,9 @@ final class AppState {
     var effectiveCurrentIndex: Int? {
         if playbackMode == .local {
             return localPlayback?.queue.currentIndex
+        }
+        if let node = selectedPlaybackNode, let currentIndex = node.currentIndex {
+            return currentIndex
         }
         if let currentIndex = client?.state?.currentIndex {
             return currentIndex
@@ -142,6 +154,9 @@ final class AppState {
         if playbackMode == .local {
             return localPlayback?.queue.repeatMode ?? .off
         }
+        if let node = selectedPlaybackNode, let repeatMode = node.repeatMode {
+            return repeatMode
+        }
         if let repeatMode = client?.state?.repeatMode {
             return repeatMode
         }
@@ -151,6 +166,9 @@ final class AppState {
     var effectiveShuffleEnabled: Bool {
         if playbackMode == .local {
             return localPlayback?.queue.shuffleEnabled ?? false
+        }
+        if let node = selectedPlaybackNode, let shuffle = node.shuffle {
+            return shuffle
         }
         if let shuffleEnabled = client?.state?.shuffle {
             return shuffleEnabled
@@ -345,13 +363,34 @@ final class AppState {
         if localPlayback == nil {
             localPlayback = LocalPlaybackController(mediaClient: mediaClient)
         }
+
+        localPlayback?.onStateUpdate = { [weak self] queue, index, position, status, volume, repeatMode, shuffle in
+            guard let self, let client = self.client else { return }
+            client.localSessionUpdate(
+                queue: queue,
+                currentIndex: index,
+                positionSecs: position,
+                status: status,
+                volume: volume,
+                repeatMode: repeatMode,
+                shuffle: shuffle
+            )
+        }
+
         playbackMode = .local
+
+        if let client {
+            client.localSessionStart(deviceName: currentDeviceName)
+        }
     }
 
     func stopLocalPlayback() {
         localPlayback?.stop()
         localPlayback = nil
         playbackMode = .remote
+
+        client?.localSessionStop()
+        localNodeId = nil
     }
 
     func switchToLocal(tracks: [Track], index: Int, positionSecs: Double?) {
@@ -360,18 +399,13 @@ final class AppState {
     }
 
     func switchToRemote(nodeId: String?) {
-        guard playbackMode == .local, let exported = localPlayback?.exportForHandoff() else {
-            if let nodeId {
-                client?.selectNode(nodeId)
-            }
-            playbackMode = .remote
-            return
-        }
-
-        if !exported.tracks.isEmpty {
+        if playbackMode == .local, let localNodeId {
+            client?.handoff(fromNodeId: localNodeId, toNodeId: nodeId ?? "")
+        } else if let exported = localPlayback?.exportForHandoff(), !exported.tracks.isEmpty {
             client?.replaceAndPlay(tracks: exported.tracks, index: exported.index ?? 0)
             client?.seek(to: exported.positionSecs)
         }
+
         if let nodeId {
             client?.selectNode(nodeId)
         }
@@ -383,6 +417,14 @@ final class AppState {
         defaults.set(wsPort, forKey: Self.wsPortKey)
         defaults.set(httpPort, forKey: Self.httpPortKey)
         defaults.set(autoConnectOnLaunch, forKey: Self.autoConnectKey)
+    }
+
+    private var currentDeviceName: String {
+        #if os(iOS)
+        UIDevice.current.name
+        #else
+        Host.current().localizedName ?? "This Mac"
+        #endif
     }
 
     private var selectedPlaybackNode: Node? {
@@ -404,11 +446,41 @@ extension AppState: KanadeClientDelegate {
 
     nonisolated func client(_ client: KanadeClient, didUpdateState state: PlaybackState) {
         Task { @MainActor [weak self] in
-            self?.lastKnownQueue = state.queue
-            self?.lastKnownCurrentIndex = state.currentIndex
-            self?.lastKnownRepeatMode = state.repeatMode
-            self?.lastKnownShuffleEnabled = state.shuffle
-            self?.lastKnownSelectedNodeId = state.selectedNodeId
+            guard let self else { return }
+
+            self.lastKnownQueue = state.queue
+            self.lastKnownCurrentIndex = state.currentIndex
+            self.lastKnownRepeatMode = state.repeatMode
+            self.lastKnownShuffleEnabled = state.shuffle
+            self.lastKnownSelectedNodeId = state.selectedNodeId
+
+            if self.serverHasPerNodeQueue {
+                let selectedNode: Node?
+                if let selectedNodeId = state.selectedNodeId,
+                   let node = state.nodes.first(where: { $0.id == selectedNodeId }) {
+                    selectedNode = node
+                } else {
+                    selectedNode = state.nodes.first(where: \.connected) ?? state.nodes.first
+                }
+
+                if let queue = selectedNode?.queue {
+                    self.lastKnownQueue = queue
+                }
+                if let currentIndex = selectedNode?.currentIndex {
+                    self.lastKnownCurrentIndex = currentIndex
+                }
+                if let repeatMode = selectedNode?.repeatMode {
+                    self.lastKnownRepeatMode = repeatMode
+                }
+                if let shuffle = selectedNode?.shuffle {
+                    self.lastKnownShuffleEnabled = shuffle
+                }
+            }
+
+            if self.localNodeId == nil, self.playbackMode == .local,
+               let localNode = state.nodes.first(where: { $0.nodeType == .local && $0.name == self.currentDeviceName }) {
+                self.localNodeId = localNode.id
+            }
         }
     }
 }

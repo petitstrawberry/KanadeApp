@@ -10,6 +10,9 @@ final class LocalPlaybackController {
     let nowPlayingManager: NowPlayingManager
 
     @ObservationIgnored private let mediaClient: MediaClient?
+    @ObservationIgnored private var updateTimer: Task<Void, Never>?
+
+    @ObservationIgnored var onStateUpdate: (([Track], Int?, Double, PlaybackStatus, Int, RepeatMode, Bool) -> Void)?
 
     var isPlaying: Bool { renderer.state.status == .playing }
     var currentTrack: Track? { queue.currentTrack }
@@ -27,14 +30,21 @@ final class LocalPlaybackController {
         bindRenderer()
         configureCommandHandlers()
         updateNowPlaying()
+        startUpdateTimer()
+    }
+
+    deinit {
+        updateTimer?.cancel()
     }
 
     func playTracks(_ tracks: [Track], startIndex: Int = 0) {
+        startUpdateTimer()
         queue.setTracks(tracks, startIndex: startIndex)
         loadCurrentTrack(autoplay: true)
     }
 
     func play() {
+        startUpdateTimer()
         if currentTrack == nil, !queue.tracks.isEmpty {
             queue.jumpToIndex(queue.currentIndex ?? 0)
             loadCurrentTrack(autoplay: true)
@@ -51,8 +61,10 @@ final class LocalPlaybackController {
     }
 
     func stop() {
+        updateTimer?.cancel()
         renderer.stop()
         nowPlayingManager.clearNowPlaying()
+        emitStateUpdate()
     }
 
     func seek(to positionSecs: Double) {
@@ -155,6 +167,7 @@ final class LocalPlaybackController {
     }
 
     func importFromServer(tracks: [Track], index: Int?, positionSecs: Double?) {
+        startUpdateTimer()
         queue.importQueue(tracks: tracks, index: index, positionSecs: positionSecs)
 
         guard currentTrack != nil else {
@@ -178,6 +191,7 @@ final class LocalPlaybackController {
         renderer.onStateChanged = { [weak self] _ in
             guard let self else { return }
             self.updateNowPlaying()
+            self.emitStateUpdate()
         }
 
         renderer.onTrackAdvanced = { [weak self] in
@@ -218,6 +232,7 @@ final class LocalPlaybackController {
             return
         }
 
+        startUpdateTimer()
         renderer.loadTrack(url: url, autoplay: autoplay)
         preloadNextTrack()
         updateNowPlaying()
@@ -239,6 +254,30 @@ final class LocalPlaybackController {
             duration: renderer.state.durationSecs > 0 ? renderer.state.durationSecs : (currentTrack?.durationSecs ?? 0),
             position: renderer.state.positionSecs,
             playbackRate: playbackRate
+        )
+    }
+
+    private func startUpdateTimer() {
+        updateTimer?.cancel()
+        updateTimer = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .milliseconds(800))
+                guard let self else { return }
+                guard self.isPlaying || self.renderer.state.status != .stopped else { continue }
+                self.emitStateUpdate()
+            }
+        }
+    }
+
+    private func emitStateUpdate() {
+        onStateUpdate?(
+            queue.tracks,
+            queue.currentIndex,
+            renderer.state.positionSecs,
+            renderer.state.status,
+            renderer.state.volume,
+            queue.repeatMode,
+            queue.shuffleEnabled
         )
     }
 }
