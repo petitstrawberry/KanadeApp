@@ -32,6 +32,11 @@ final class AppState {
     @ObservationIgnored private static let httpPortKey = "kanade.httpPort"
     @ObservationIgnored private static let autoConnectKey = "kanade.autoConnect"
     @ObservationIgnored private static let controlledNodeIdKey = "kanade.controlledNodeId"
+    @ObservationIgnored private static let localQueueKey = "kanade.localQueue"
+    @ObservationIgnored private static let localPositionKey = "kanade.localPosition"
+    @ObservationIgnored private static let localRepeatKey = "kanade.localRepeat"
+    @ObservationIgnored private static let localShuffleKey = "kanade.localShuffle"
+    @ObservationIgnored private static let localIndexKey = "kanade.localIndex"
 
     @ObservationIgnored private let defaults = UserDefaults.standard
     @ObservationIgnored private var didAttemptStartupConnect = false
@@ -184,6 +189,7 @@ final class AppState {
         httpPort = defaults.object(forKey: Self.httpPortKey) as? Int ?? 8081
         autoConnectOnLaunch = defaults.object(forKey: Self.autoConnectKey) as? Bool ?? true
         controlledNodeId = defaults.string(forKey: Self.controlledNodeIdKey)
+        restoreLocalPlaybackIfNeeded()
     }
 
     func startupConnectIfNeeded() {
@@ -205,10 +211,11 @@ final class AppState {
         newClient.delegate = self
         client = newClient
         mediaClient = MediaClient(baseURL: httpURL)
+        restoreLocalPlaybackIfNeeded()
         if let localPlayback {
             localPlayback.onStateUpdate = { [weak self] queue, index, position, status, volume, repeatMode, shuffle in
-                guard let self, let client = self.client else { return }
-                client.localSessionUpdate(
+                guard let self else { return }
+                self.sendLocalSessionUpdate(
                     queue: queue,
                     currentIndex: index,
                     positionSecs: position,
@@ -217,6 +224,7 @@ final class AppState {
                     repeatMode: repeatMode,
                     shuffle: shuffle
                 )
+                self.saveLocalPlaybackState()
             }
         }
         newClient.connect()
@@ -381,8 +389,8 @@ final class AppState {
         }
 
         localPlayback?.onStateUpdate = { [weak self] queue, index, position, status, volume, repeatMode, shuffle in
-            guard let self, let client = self.client else { return }
-            client.localSessionUpdate(
+            guard let self else { return }
+            self.sendLocalSessionUpdate(
                 queue: queue,
                 currentIndex: index,
                 positionSecs: position,
@@ -391,6 +399,7 @@ final class AppState {
                 repeatMode: repeatMode,
                 shuffle: shuffle
             )
+            self.saveLocalPlaybackState()
         }
 
         if let client {
@@ -406,6 +415,12 @@ final class AppState {
             controlledNodeId = fallbackRemoteNodeId
         }
         localNodeId = nil
+
+        defaults.removeObject(forKey: Self.localQueueKey)
+        defaults.removeObject(forKey: Self.localIndexKey)
+        defaults.removeObject(forKey: Self.localPositionKey)
+        defaults.removeObject(forKey: Self.localRepeatKey)
+        defaults.removeObject(forKey: Self.localShuffleKey)
     }
 
     func switchToLocal(tracks: [Track], index: Int, positionSecs: Double?) {
@@ -422,6 +437,68 @@ final class AppState {
         client?.selectNode(nodeId)
     }
 
+    func reRegisterLocalSessionIfNeeded() {
+        guard localPlayback != nil else { return }
+
+        localPlayback?.onStateUpdate = { [weak self] queue, index, position, status, volume, repeatMode, shuffle in
+            guard let self else { return }
+            self.sendLocalSessionUpdate(
+                queue: queue,
+                currentIndex: index,
+                positionSecs: position,
+                status: status,
+                volume: volume,
+                repeatMode: repeatMode,
+                shuffle: shuffle
+            )
+            self.saveLocalPlaybackState()
+        }
+
+        if let localNodeId,
+           let state = client?.state,
+           state.nodes.contains(where: { $0.id == localNodeId }) {
+            sendLocalSessionUpdate()
+            return
+        }
+
+        localNodeId = nil
+        client?.localSessionStart(deviceName: currentDeviceName)
+    }
+
+    func sendLocalSessionUpdate() {
+        guard let localPlayback, let client else { return }
+        sendLocalSessionUpdate(
+            queue: localPlayback.queue.tracks,
+            currentIndex: localPlayback.queue.currentIndex,
+            positionSecs: localPlayback.positionSecs,
+            status: localPlayback.renderer.state.status,
+            volume: localPlayback.volume,
+            repeatMode: localPlayback.queue.repeatMode,
+            shuffle: localPlayback.queue.shuffleEnabled
+        )
+    }
+
+    func sendLocalSessionUpdate(
+        queue: [Track],
+        currentIndex: Int?,
+        positionSecs: Double,
+        status: PlaybackStatus,
+        volume: Int,
+        repeatMode: RepeatMode,
+        shuffle: Bool
+    ) {
+        guard let client else { return }
+        client.localSessionUpdate(
+            queue: queue,
+            currentIndex: currentIndex,
+            positionSecs: positionSecs,
+            status: status,
+            volume: volume,
+            repeatMode: repeatMode,
+            shuffle: shuffle
+        )
+    }
+
     private func persistConnectionSettings() {
         defaults.set(serverAddress, forKey: Self.serverAddressKey)
         defaults.set(wsPort, forKey: Self.wsPortKey)
@@ -431,6 +508,37 @@ final class AppState {
 
     private func persistControlledNodeId() {
         defaults.set(controlledNodeId, forKey: Self.controlledNodeIdKey)
+    }
+
+    func saveLocalPlaybackState() {
+        guard let localPlayback else { return }
+        let tracks = localPlayback.queue.tracks
+        guard !tracks.isEmpty else { return }
+
+        if let encoded = try? JSONEncoder().encode(tracks) {
+            defaults.set(encoded, forKey: Self.localQueueKey)
+        }
+        defaults.set(localPlayback.queue.currentIndex, forKey: Self.localIndexKey)
+        defaults.set(localPlayback.positionSecs, forKey: Self.localPositionKey)
+        defaults.set(localPlayback.queue.repeatMode.rawValue, forKey: Self.localRepeatKey)
+        defaults.set(localPlayback.queue.shuffleEnabled, forKey: Self.localShuffleKey)
+    }
+
+    func restoreLocalPlaybackIfNeeded() {
+        guard localPlayback == nil,
+              mediaClient != nil,
+              let data = defaults.data(forKey: Self.localQueueKey),
+              let tracks = try? JSONDecoder().decode([Track].self, from: data),
+              !tracks.isEmpty
+        else { return }
+
+        startLocalPlayback()
+        let index = defaults.object(forKey: Self.localIndexKey) as? Int
+        let position = defaults.double(forKey: Self.localPositionKey)
+        localPlayback?.importFromServer(tracks: tracks, index: index ?? 0, positionSecs: position > 0 ? position : nil)
+        let repeatMode = defaults.string(forKey: Self.localRepeatKey).flatMap(RepeatMode.init(rawValue:)) ?? .off
+        localPlayback?.setRepeat(repeatMode)
+        localPlayback?.setShuffle(defaults.bool(forKey: Self.localShuffleKey))
     }
 
     private var currentDeviceName: String {
@@ -511,7 +619,12 @@ final class AppState {
 }
 
 extension AppState: KanadeClientDelegate {
-    nonisolated func clientDidConnect(_ client: KanadeClient) {}
+    nonisolated func clientDidConnect(_ client: KanadeClient) {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            self.reRegisterLocalSessionIfNeeded()
+        }
+    }
 
     nonisolated func clientDidDisconnect(_ client: KanadeClient, error: (any Error)?) {}
 
