@@ -21,31 +21,19 @@ struct NowPlayingBar: View {
     }
 
     private var isPlaying: Bool {
-        if appState.playbackMode == .local {
-            return appState.localIsPlaying
-        }
         return appState.effectiveTransportState?.isPlayingLike ?? false
     }
 
     private var currentPosition: Double {
-        if appState.playbackMode == .local {
-            return appState.localPositionSecs
-        }
         return appState.effectiveTransportState?.positionSecs ?? 0
     }
 
     private var currentVolume: Double {
-        if appState.playbackMode == .local {
-            return Double(appState.localVolume)
-        }
         return Double(appState.effectiveTransportState?.volume ?? 0)
     }
 
     private var sliderDuration: Double {
-        if appState.playbackMode == .local {
-            return max(appState.localDurationSecs, currentTrack?.durationSecs ?? 0, 1)
-        }
-        return max(currentTrack?.durationSecs ?? 0, 1)
+        max(appState.effectiveDurationSecs, currentTrack?.durationSecs ?? 0, 1)
     }
 
     private var repeatMode: RepeatMode {
@@ -88,10 +76,10 @@ struct NowPlayingBar: View {
     private func barContent(currentTrack: Track) -> some View {
         ViewThatFits(in: .horizontal) {
             fullContent(currentTrack: currentTrack)
-                .frame(minWidth: placement == .iosAccessory ? 10_000 : 768)
-
             compactContent(currentTrack: currentTrack)
         }
+        .frame(maxWidth: .infinity)
+        .frame(height: placement == .iosAccessory ? 60 : 112)
         .padding(.horizontal, horizontalPadding)
         .padding(.vertical, verticalPadding)
     }
@@ -126,7 +114,7 @@ struct NowPlayingBar: View {
         Menu {
             OutputPickerMenuContent()
         } label: {
-            Image(systemName: appState.playbackMode == .local ? "headphones" : "airplayaudio")
+            Image(systemName: appState.isControllingLocalNode ? "headphones" : "airplayaudio")
                 .font(.system(size: 13))
                 .foregroundStyle(.secondary)
         }
@@ -134,15 +122,21 @@ struct NowPlayingBar: View {
     }
 
     private func fullContent(currentTrack: Track) -> some View {
-        HStack(spacing: 16) {
+        HStack(spacing: 12) {
             leftColumn(currentTrack: currentTrack)
+                .frame(minWidth: 130, maxWidth: 280, alignment: .leading)
+
             centerColumn
+                .frame(minWidth: 308)
+                .frame(maxWidth: .infinity)
+
             rightColumn
+                .frame(minWidth: 166, maxWidth: 280)
         }
-        .padding(.horizontal, 16)
+        .padding(.horizontal, 12)
         .padding(.vertical, 8)
         .frame(maxWidth: .infinity)
-        .frame(height: 96)
+        .frame(height: 112)
         .modifier(PlacementBackgroundModifier(placement: placement))
     }
 
@@ -154,18 +148,23 @@ struct NowPlayingBar: View {
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(currentTrack.title ?? "Untitled")
-                    .font(.system(size: 13, weight: .bold))
+                    .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(.primary)
                     .lineLimit(1)
 
                 Text(currentTrack.artist ?? "Unknown Artist")
-                    .font(.system(size: 12))
+                    .font(.system(size: 10))
                     .foregroundStyle(secondaryTextColor)
                     .lineLimit(1)
+
+                if let album = currentTrack.albumTitle, !album.isEmpty {
+                    Text(album)
+                        .font(.system(size: 10))
+                        .foregroundStyle(secondaryTextColor.opacity(0.7))
+                        .lineLimit(1)
+                }
             }
-            Spacer()
         }
-        .frame(maxWidth: .infinity)
         .contentShape(Rectangle())
     }
 
@@ -293,6 +292,7 @@ struct NowPlayingBar: View {
             outputPickerButton
 
             HStack(spacing: 8) {
+
                 Image(systemName: "speaker.fill")
                     .font(.system(size: 12))
                     .foregroundStyle(.secondary)
@@ -317,8 +317,8 @@ struct NowPlayingBar: View {
                     .font(.system(size: 12))
                     .foregroundStyle(.secondary)
             }
+            Spacer()
         }
-        .frame(maxWidth: .infinity)
     }
 
     @ViewBuilder
@@ -327,7 +327,7 @@ struct NowPlayingBar: View {
         Menu {
             OutputPickerMenuContent()
         } label: {
-            Image(systemName: appState.playbackMode == .local ? "headphones" : "airplayaudio")
+            Image(systemName: appState.isControllingLocalNode ? "headphones" : "airplayaudio")
                 .font(.system(size: 14))
                 .foregroundStyle(.secondary)
                 .frame(width: 32, height: 32)
@@ -399,7 +399,7 @@ struct NowPlayingBar: View {
         case .iosAccessory:
             return 52
         case .macFloating:
-            return 64
+            return 80
         }
     }
 

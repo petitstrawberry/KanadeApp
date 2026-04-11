@@ -11,7 +11,7 @@ struct ContentView: View {
     @State private var showNowPlaying = false
 
     private var shouldShowPlayerShell: Bool {
-        appState.isConnected || appState.playbackMode == .local || appState.shouldShowMiniPlayer
+        appState.isConnected || appState.localPlayback != nil || appState.shouldShowMiniPlayer
     }
 
     var body: some View {
@@ -104,14 +104,9 @@ struct ContentView: View {
             }
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 if appState.shouldShowMiniPlayer {
-                    HStack {
-                        Spacer(minLength: 0)
-                        NowPlayingBar(placement: .macFloating)
-                            .frame(maxWidth: 900)
-                        Spacer(minLength: 0)
-                    }
-                    .padding(.horizontal, 20)
-                    .padding(.bottom, 12)
+                    NowPlayingBar(placement: .macFloating)
+                        .padding(.horizontal, 20)
+                        .padding(.bottom, 12)
                 }
             }
         }

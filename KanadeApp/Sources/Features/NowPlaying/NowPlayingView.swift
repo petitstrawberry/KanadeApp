@@ -18,23 +18,14 @@ struct NowPlayingView: View {
     }
 
     private var currentPosition: Double {
-        if appState.playbackMode == .local {
-            return appState.localPositionSecs
-        }
         return appState.effectiveTransportState?.positionSecs ?? 0
     }
 
     private var currentVolume: Double {
-        if appState.playbackMode == .local {
-            return Double(appState.localVolume)
-        }
         return Double(appState.effectiveTransportState?.volume ?? 0)
     }
 
     private var isPlaying: Bool {
-        if appState.playbackMode == .local {
-            return appState.localIsPlaying
-        }
         return appState.effectiveTransportState?.isPlayingLike ?? false
     }
 
@@ -301,7 +292,7 @@ struct NowPlayingView: View {
     #if os(iOS)
     @ViewBuilder
     private var outputPickerRow: some View {
-        let isLocal = appState.playbackMode == .local
+        let isLocal = appState.isControllingLocalNode
         HStack(spacing: 12) {
             Image(systemName: isLocal ? "headphones" : "airplayaudio")
                 .font(.subheadline.weight(.medium))
@@ -325,10 +316,10 @@ struct NowPlayingView: View {
     }
 
     private var outputName: String {
-        if appState.playbackMode == .local {
+        if appState.isControllingLocalNode {
             return UIDevice.current.name
         }
-        if let nodeId = appState.client?.state?.selectedNodeId,
+        if let nodeId = appState.controlledNodeId,
            let node = appState.client?.state?.nodes.first(where: { $0.id == nodeId }) {
             return node.name
         }
@@ -489,7 +480,7 @@ struct NowPlayingView: View {
             Menu {
                 OutputPickerMenuContent()
             } label: {
-                Image(systemName: appState.playbackMode == .local ? "headphones" : "airplayaudio")
+                Image(systemName: appState.isControllingLocalNode ? "headphones" : "airplayaudio")
                     .font(.headline)
                     .foregroundStyle(.secondary)
                     .frame(width: 36, height: 36)
@@ -526,10 +517,7 @@ struct NowPlayingView: View {
     #endif
 
     private var sliderDuration: Double {
-        if appState.playbackMode == .local {
-            return max(appState.localDurationSecs, currentTrack?.durationSecs ?? 0, 1)
-        }
-        return max(currentTrack?.durationSecs ?? 0, 1)
+        max(appState.effectiveDurationSecs, currentTrack?.durationSecs ?? 0, 1)
     }
 
     private var nextRepeatMode: RepeatMode {

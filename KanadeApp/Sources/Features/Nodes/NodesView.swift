@@ -6,23 +6,18 @@ struct NodesView: View {
 
     private var client: KanadeClient? { appState.client }
     private var nodes: [Node] { client?.state?.nodes ?? [] }
-    private var selectedNodeId: String? { client?.state?.selectedNodeId }
-    private var currentTrack: Track? {
-        guard let state = client?.state,
-              let currentIndex = state.currentIndex,
-              state.queue.indices.contains(currentIndex) else {
-            return nil
-        }
-
-        return state.queue[currentIndex]
+    private var remoteNodes: [Node] {
+        nodes.filter { $0.id != appState.localNodeId }
     }
 
     var body: some View {
         List {
             Section {
                 Button {
-                    if appState.playbackMode == .local {
-                        appState.stopLocalPlayback()
+                    if appState.localPlayback != nil {
+                        if let localNodeId = appState.localNodeId {
+                            appState.controlledNodeId = localNodeId
+                        }
                     } else {
                         appState.switchToLocal(
                             tracks: appState.effectiveQueue,
@@ -34,10 +29,10 @@ struct NodesView: View {
                     localDeviceRow
                 }
                 .buttonStyle(.plain)
-                .listRowBackground(appState.playbackMode == .local ? Color.accentColor.opacity(0.14) : Color.clear)
+                .listRowBackground(isLocalSelected ? Color.accentColor.opacity(0.14) : Color.clear)
             }
 
-            if nodes.isEmpty {
+            if remoteNodes.isEmpty {
                 ContentUnavailableView(
                     "No Remote Nodes",
                     systemImage: "speaker.slash",
@@ -45,13 +40,9 @@ struct NodesView: View {
                 )
             } else {
                 Section("Remote Nodes") {
-                    ForEach(nodes) { node in
+                    ForEach(remoteNodes) { node in
                         Button {
-                            if appState.playbackMode == .local {
-                                appState.switchToRemote(nodeId: node.id)
-                            } else {
-                                appState.performSelectNode(node.id)
-                            }
+                            appState.switchToRemote(nodeId: node.id)
                         } label: {
                             nodeRow(node)
                         }
@@ -75,7 +66,7 @@ struct NodesView: View {
     private var localDeviceRow: some View {
         HStack(alignment: .top, spacing: 12) {
             Circle()
-                .fill(appState.playbackMode == .local ? Color.accentColor : Color.secondary.opacity(0.4))
+                .fill(isLocalSelected ? Color.accentColor : Color.secondary.opacity(0.4))
                 .frame(width: 12, height: 12)
                 .padding(.top, 5)
 
@@ -83,11 +74,11 @@ struct NodesView: View {
                 HStack(spacing: 8) {
                     Image(systemName: "headphones")
                         .font(.headline)
-                        .foregroundStyle(appState.playbackMode == .local ? Color.accentColor : .primary)
+                        .foregroundStyle(isLocalSelected ? Color.accentColor : .primary)
                     Text(localDeviceName)
                         .font(.headline)
-                        .foregroundStyle(appState.playbackMode == .local ? Color.accentColor : .primary)
-                    if appState.playbackMode == .local {
+                        .foregroundStyle(isLocalSelected ? Color.accentColor : .primary)
+                    if isLocalSelected {
                         Text("Active")
                             .font(.caption2.weight(.semibold))
                             .foregroundStyle(.white)
@@ -99,10 +90,10 @@ struct NodesView: View {
 
                 HStack(spacing: 10) {
                     statusBadge(
-                        title: appState.playbackMode == .local ? "Local" : "Idle",
-                        tint: appState.playbackMode == .local ? .accentColor : .secondary
+                        title: localNode.map { playbackStatusText($0.status) } ?? (appState.localPlayback != nil ? "Starting" : "Idle"),
+                        tint: localNode.map { playbackStatusColor($0.status) } ?? (isLocalSelected ? .accentColor : .secondary)
                     )
-                    if appState.playbackMode == .local, let track = appState.localCurrentTrack {
+                    if let track = localCurrentTrack {
                         Text(track.title ?? "Untitled")
                             .font(.caption)
                             .foregroundStyle(.secondary)
@@ -127,6 +118,7 @@ struct NodesView: View {
 
     @ViewBuilder
     private func nodeRow(_ node: Node) -> some View {
+        let currentTrack = currentTrack(for: node)
         HStack(alignment: .top, spacing: 12) {
             Circle()
                 .fill(node.connected ? Color.green : Color.red)
@@ -177,7 +169,34 @@ struct NodesView: View {
     }
 
     private func isSelected(_ node: Node) -> Bool {
-        selectedNodeId == node.id
+        appState.controlledNodeId == node.id
+    }
+
+    private var isLocalSelected: Bool {
+        appState.controlledNodeId == appState.localNodeId && appState.localNodeId != nil
+    }
+
+    private var localNode: Node? {
+        guard let localNodeId = appState.localNodeId else { return nil }
+        return nodes.first(where: { $0.id == localNodeId })
+    }
+
+    private var localCurrentTrack: Track? {
+        if isLocalSelected {
+            return appState.effectiveCurrentTrack
+        }
+        guard let localNode else { return nil }
+        return currentTrack(for: localNode)
+    }
+
+    private func currentTrack(for node: Node) -> Track? {
+        guard let queue = node.queue,
+              let currentIndex = node.currentIndex,
+              queue.indices.contains(currentIndex) else {
+            return nil
+        }
+
+        return queue[currentIndex]
     }
 
     private func formatTime(_ seconds: Double) -> String {
