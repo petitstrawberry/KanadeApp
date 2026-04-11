@@ -11,7 +11,7 @@ let project = Project(
             name: "KanadeApp",
             platform: .iOS,
             product: .app,
-            bundleId: "com.petitstrawberry.KanadeApp",
+            bundleId: "dev.ichigo.KanadeApp",
             deploymentTarget: DeploymentTarget.iOS(targetVersion: "26.0", devices: [.iphone, .ipad]),
             infoPlist: .extendingDefault(
                 with: [
