@@ -27,6 +27,7 @@ final class AVQueuePlayerRenderer: AudioRenderer {
     @ObservationIgnored private var itemURLMap: [ObjectIdentifier: URL] = [:]
     @ObservationIgnored private var currentTrackIndex = 0
     @ObservationIgnored private var shouldAutoplay = true
+    @ObservationIgnored private var isSeekingInternally = false
 
     init() {
         player.actionAtItemEnd = .advance
@@ -94,9 +95,14 @@ final class AVQueuePlayerRenderer: AudioRenderer {
     func seek(to positionSecs: Double) {
         guard player.currentItem != nil else { return }
 
+        isSeekingInternally = true
+        state.positionSecs = max(positionSecs, 0)
+        onStateChanged?(state)
+
         let time = CMTime(seconds: max(positionSecs, 0), preferredTimescale: 600)
         player.seek(to: time, toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in
             Task { @MainActor [weak self] in
+                self?.isSeekingInternally = false
                 self?.refreshState()
             }
         }
@@ -246,7 +252,7 @@ final class AVQueuePlayerRenderer: AudioRenderer {
     }
 
     private func installTimeObserver() {
-        let interval = CMTime(seconds: 0.25, preferredTimescale: 600)
+        let interval = CMTime(seconds: 1, preferredTimescale: 600)
         timeObserver = player.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] _ in
             Task { @MainActor [weak self] in
                 guard let self else { return }
@@ -358,14 +364,20 @@ final class AVQueuePlayerRenderer: AudioRenderer {
             }
         }
 
-        applyState(
-            RendererState(
-                status: status,
-                positionSecs: positionSecs,
-                durationSecs: durationSecs,
-                volume: state.volume
+        if isSeekingInternally {
+            state.status = status
+            state.durationSecs = durationSecs
+            onStateChanged?(state)
+        } else {
+            applyState(
+                RendererState(
+                    status: status,
+                    positionSecs: positionSecs,
+                    durationSecs: durationSecs,
+                    volume: state.volume
+                )
             )
-        )
+        }
     }
 
     private func applyState(_ newState: RendererState) {

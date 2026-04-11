@@ -11,6 +11,8 @@ final class LocalPlaybackController {
 
     @ObservationIgnored private let mediaClient: MediaClient?
     @ObservationIgnored private var updateTimer: Task<Void, Never>?
+    @ObservationIgnored private var cachedArtworkAlbumId: String?
+    @ObservationIgnored private var cachedArtworkData: Data?
 
     @ObservationIgnored var onStateUpdate: (([Track], Int?, Double, PlaybackStatus, Int, RepeatMode, Bool) -> Void)?
 
@@ -249,12 +251,49 @@ final class LocalPlaybackController {
 
     private func updateNowPlaying() {
         let playbackRate = renderer.state.status == .playing ? 1.0 : 0.0
+
+        let artwork: Data?
+        if let albumId = currentTrack?.albumId, albumId == cachedArtworkAlbumId {
+            artwork = cachedArtworkData
+        } else {
+            artwork = nil
+            cachedArtworkAlbumId = nil
+            cachedArtworkData = nil
+        }
+
         nowPlayingManager.updateNowPlaying(
             track: currentTrack,
+            artworkData: artwork,
             duration: renderer.state.durationSecs > 0 ? renderer.state.durationSecs : (currentTrack?.durationSecs ?? 0),
             position: renderer.state.positionSecs,
             playbackRate: playbackRate
         )
+
+        fetchArtworkIfNeeded()
+    }
+
+    private func fetchArtworkIfNeeded() {
+        guard let albumId = currentTrack?.albumId,
+              albumId != cachedArtworkAlbumId,
+              let mediaClient
+        else { return }
+
+        let albumIdCopy = albumId
+        Task { @MainActor in
+            guard let data = try? await mediaClient.artwork(albumId: albumIdCopy),
+                  !data.isEmpty
+            else { return }
+            cachedArtworkAlbumId = albumIdCopy
+            cachedArtworkData = data
+            let playbackRate = renderer.state.status == .playing ? 1.0 : 0.0
+            nowPlayingManager.updateNowPlaying(
+                track: currentTrack,
+                artworkData: data,
+                duration: renderer.state.durationSecs > 0 ? renderer.state.durationSecs : (currentTrack?.durationSecs ?? 0),
+                position: renderer.state.positionSecs,
+                playbackRate: playbackRate
+            )
+        }
     }
 
     private func startUpdateTimer() {

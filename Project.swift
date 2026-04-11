@@ -19,6 +19,9 @@ let project = Project(
                         "UIColorName": "",
                         "UIImageName": "",
                     ],
+                    "UIBackgroundModes": [
+                        "audio",
+                    ],
                     "NSAppTransportSecurity": [
                         "NSAllowsLocalNetworking": true,
                     ],

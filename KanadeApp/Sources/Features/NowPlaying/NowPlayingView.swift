@@ -9,6 +9,7 @@ struct NowPlayingView: View {
     @State private var seekPosition: Double = 0
     @State private var volumeValue: Double = 0
     @State private var isSeeking = false
+    @State private var pendingSeekTarget: Double?
     @State private var isAdjustingVolume = false
     @State private var dominantColor: Color = .clear
 
@@ -98,21 +99,22 @@ struct NowPlayingView: View {
                 .padding(.horizontal, 32)
 
                 VStack(spacing: 8) {
-                    Slider(
-                        value: Binding(
-                            get: { seekPosition },
-                            set: { seekPosition = $0 }
-                        ),
-                        in: 0...sliderDuration,
-                        onEditingChanged: { editing in
-                            isSeeking = editing
-                            if !editing {
-                                appState.performSeek(to: seekPosition)
-                            }
+                Slider(
+                    value: Binding(
+                        get: { seekPosition },
+                        set: { seekPosition = $0 }
+                    ),
+                    in: 0...sliderDuration,
+                    onEditingChanged: { editing in
+                        isSeeking = editing
+                        if !editing {
+                            pendingSeekTarget = seekPosition
+                            appState.performSeek(to: seekPosition)
                         }
-                    )
-                    .tint(dominantColor)
-                    .disabled(currentTrack == nil)
+                    }
+                )
+                .tint(dominantColor)
+                .disabled(currentTrack == nil)
 
                     HStack {
                         Text(formatTime(seekPosition))
@@ -238,7 +240,12 @@ struct NowPlayingView: View {
             updateDominantColor()
         }
         .onChange(of: currentPosition) {
-            if !isSeeking {
+            if let target = pendingSeekTarget {
+                if abs(currentPosition - target) < 2.0 {
+                    pendingSeekTarget = nil
+                    seekPosition = min(currentPosition, sliderDuration)
+                }
+            } else if !isSeeking {
                 syncSeekPosition()
             }
         }
@@ -269,7 +276,12 @@ struct NowPlayingView: View {
             syncSeekPosition()
         }
         .onChange(of: currentPosition) {
-            if !isSeeking {
+            if let target = pendingSeekTarget {
+                if abs(currentPosition - target) < 2.0 {
+                    pendingSeekTarget = nil
+                    seekPosition = min(currentPosition, sliderDuration)
+                }
+            } else if !isSeeking {
                 syncSeekPosition()
             }
         }
@@ -399,6 +411,7 @@ struct NowPlayingView: View {
                 onEditingChanged: { editing in
                     isSeeking = editing
                     if !editing {
+                        pendingSeekTarget = seekPosition
                         appState.performSeek(to: seekPosition)
                     }
                 }

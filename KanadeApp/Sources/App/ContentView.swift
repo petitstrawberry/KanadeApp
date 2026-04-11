@@ -64,10 +64,12 @@ struct ContentView: View {
         }
         .tabViewBottomAccessory {
             if appState.shouldShowMiniPlayer {
-                NowPlayingBar(placement: .iosAccessory)
-                    .onTapGesture {
-                        showNowPlaying = true
-                    }
+                Button {
+                    showNowPlaying = true
+                } label: {
+                    NowPlayingBar(placement: .iosAccessory)
+                }
+                .buttonStyle(.plain)
             }
         }
         .sheet(isPresented: $showNowPlaying) {
