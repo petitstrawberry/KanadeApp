@@ -79,7 +79,6 @@ struct NowPlayingBar: View {
             compactContent(currentTrack: currentTrack)
         }
         .frame(maxWidth: .infinity)
-        .frame(height: placement == .iosAccessory ? 60 : 112)
         .padding(.horizontal, horizontalPadding)
         .padding(.vertical, verticalPadding)
     }
@@ -102,9 +101,9 @@ struct NowPlayingBar: View {
             .frame(width: 36, height: 36)
         }
         .padding(.horizontal, 16)
-        .padding(.vertical, 10)
+        .padding(.vertical, 6)
         .frame(maxWidth: .infinity)
-        .frame(height: 60)
+        .frame(height: placement == .iosAccessory ? 60 : 64)
         .modifier(PlacementBackgroundModifier(placement: placement))
     }
 
@@ -124,19 +123,19 @@ struct NowPlayingBar: View {
     private func fullContent(currentTrack: Track) -> some View {
         HStack(spacing: 12) {
             leftColumn(currentTrack: currentTrack)
-                .frame(minWidth: 130, maxWidth: 280, alignment: .leading)
+                .frame(minWidth: 80, maxWidth: 280, alignment: .leading)
 
             centerColumn
-                .frame(minWidth: 308)
+                .frame(minWidth: 320)
                 .frame(maxWidth: .infinity)
 
             rightColumn
-                .frame(minWidth: 166, maxWidth: 280)
+                .frame(minWidth: 80, maxWidth: 280)
         }
         .padding(.horizontal, 12)
-        .padding(.vertical, 8)
+        .padding(.vertical, 4)
         .frame(maxWidth: .infinity)
-        .frame(height: 112)
+        .frame(height: placement == .iosAccessory ? 60 : 64)
         .modifier(PlacementBackgroundModifier(placement: placement))
     }
 
@@ -190,58 +189,58 @@ struct NowPlayingBar: View {
     }
 
     private var centerColumn: some View {
-        VStack(spacing: 6) {
-            HStack(spacing: 20) {
+        VStack(spacing: 2) {
+            HStack(spacing: 16) {
                 Button {
                     appState.performSetShuffle(!shuffleEnabled)
                 } label: {
                     Image(systemName: "shuffle")
-                        .font(.system(size: 14))
+                        .font(.system(size: 12))
                         .foregroundStyle(shuffleEnabled ? Color.accentColor : .secondary)
                 }
                 .buttonStyle(.plain)
-                .frame(width: 44, height: 44)
+                .frame(width: 32, height: 32)
                 .contentShape(Rectangle())
 
                 Button {
                     appState.performPrevious()
                 } label: {
                     Image(systemName: "backward.fill")
-                        .font(.system(size: 14))
+                        .font(.system(size: 12))
                 }
                 .buttonStyle(.plain)
-                .frame(width: 44, height: 44)
+                .frame(width: 32, height: 32)
                 .contentShape(Rectangle())
 
                 Button {
                     togglePlayback()
                 } label: {
                     Image(systemName: isPlaying ? "pause.fill" : "play.fill")
-                        .font(.system(size: 18))
+                        .font(.system(size: 15))
                 }
                 .buttonStyle(.plain)
-                .frame(width: 52, height: 52)
+                .frame(width: 36, height: 36)
                 .contentShape(Rectangle())
 
                 Button {
                     appState.performNext()
                 } label: {
                     Image(systemName: "forward.fill")
-                        .font(.system(size: 14))
+                        .font(.system(size: 12))
                 }
                 .buttonStyle(.plain)
-                .frame(width: 44, height: 44)
+                .frame(width: 32, height: 32)
                 .contentShape(Rectangle())
 
                 Button {
                     appState.performSetRepeat(nextRepeatMode)
                 } label: {
                     Image(systemName: repeatSymbolName)
-                        .font(.system(size: 14))
+                        .font(.system(size: 12))
                         .foregroundStyle(repeatMode != .off ? Color.accentColor : .secondary)
                 }
                 .buttonStyle(.plain)
-                .frame(width: 44, height: 44)
+                .frame(width: 32, height: 32)
                 .contentShape(Rectangle())
             }
 
@@ -292,7 +291,6 @@ struct NowPlayingBar: View {
             outputPickerButton
 
             HStack(spacing: 8) {
-
                 Image(systemName: "speaker.fill")
                     .font(.system(size: 12))
                     .foregroundStyle(.secondary)
@@ -390,7 +388,7 @@ struct NowPlayingBar: View {
         case .iosAccessory:
             return 28
         case .macFloating:
-            return 40
+            return 44
         }
     }
 
@@ -399,7 +397,7 @@ struct NowPlayingBar: View {
         case .iosAccessory:
             return 52
         case .macFloating:
-            return 80
+            return 44
         }
     }
 
@@ -483,4 +481,11 @@ private struct MacFloatingBarBackground: View {
         }
         .shadow(color: .black.opacity(0.03), radius: 6, y: 2)
     }
+}
+
+#Preview {
+    NowPlayingBar(placement: .iosAccessory)
+        .environment(AppState())
+        .padding()
+        .background(Color.gray.opacity(0.2))
 }
