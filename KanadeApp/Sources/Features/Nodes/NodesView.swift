@@ -45,6 +45,7 @@ struct NodesView: View {
                             nodeRow(node)
                         }
                         .buttonStyle(.plain)
+                        .disabled(node.nodeType == .local)
                         .listRowBackground(isSelected(node) ? Color.accentColor.opacity(0.14) : Color.clear)
                         .contextMenu {
                             Button {

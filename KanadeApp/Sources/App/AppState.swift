@@ -456,9 +456,9 @@ final class AppState {
     }
 
     func switchToLocal(tracks: [Track], index: Int, positionSecs: Double?) {
-        controlTarget = .local
         startLocalPlayback()
         localPlayback?.importFromServer(tracks: tracks, index: index, positionSecs: positionSecs)
+        controlTarget = .local
     }
 
     func switchToRemote(nodeId: String) {

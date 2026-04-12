@@ -72,7 +72,7 @@ struct OutputPickerMenuContent: View {
                             }
                         }
                     }
-                    .disabled(!node.connected)
+                    .disabled(!node.connected || node.nodeType == .local)
                 }
             }
         }
