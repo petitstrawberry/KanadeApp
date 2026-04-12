@@ -49,6 +49,8 @@ final class AppState {
     @ObservationIgnored private var didAttemptStartupConnect = false
     @ObservationIgnored private var isResolvingControlledNodeId = false
 
+    var showRemoteUnavailablePrompt = false
+
     var client: KanadeClient?
     var mediaClient: MediaClient?
     var controlTarget: ControlTarget {
@@ -687,14 +689,12 @@ extension AppState: KanadeClientDelegate {
                 let preferred = self.lastRemoteNodeId ?? state.selectedNodeId
 
                 if let preferred,
-                   state.nodes.contains(where: { $0.id == preferred }) {
+                   state.nodes.contains(where: { $0.id == preferred && $0.nodeType != .local }) {
                     self.setResolvedControlledNodeId(preferred)
-                } else if let connected = state.nodes.first(where: { $0.deviceId != self.deviceId && $0.connected }) {
-                    self.setResolvedControlledNodeId(connected.id)
+                    self.showRemoteUnavailablePrompt = false
                 } else {
-                    self.setResolvedControlledNodeId(
-                        state.nodes.first(where: { $0.deviceId != self.deviceId })?.id
-                    )
+                    self.setResolvedControlledNodeId(nil)
+                    self.showRemoteUnavailablePrompt = true
                 }
             }
 

@@ -28,6 +28,9 @@ struct ContentView: View {
     var connectedContent: some View {
         #if os(iOS)
         iosContent
+            .overlay(alignment: .top) {
+                remoteUnavailableBanner
+            }
         #else
         macContent
         #endif
@@ -101,6 +104,9 @@ struct ContentView: View {
         } detail: {
             NavigationStack {
                 detailView
+                    .safeAreaInset(edge: .top, spacing: 0) {
+                        remoteUnavailableBanner
+                    }
             }
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 if appState.shouldShowMiniPlayer {
@@ -130,6 +136,38 @@ struct ContentView: View {
         }
     }
     #endif
+
+    @ViewBuilder
+    var remoteUnavailableBanner: some View {
+        if appState.showRemoteUnavailablePrompt {
+            HStack(spacing: 10) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.yellow)
+                Text("No remote nodes available.")
+                    .font(.subheadline)
+                Spacer()
+                Button("Play on This Device") {
+                    appState.switchToLocal(
+                        tracks: appState.effectiveQueue,
+                        index: appState.effectiveCurrentIndex ?? 0,
+                        positionSecs: appState.effectiveTransportState?.positionSecs
+                    )
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+                Button {
+                    appState.showRemoteUnavailablePrompt = false
+                } label: {
+                    Image(systemName: "xmark")
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+            .background(.bar)
+        }
+    }
 }
 
 struct ConnectionPrompt: View {
