@@ -1,6 +1,11 @@
 import SwiftUI
 import KanadeKit
 
+enum ControlTarget: String, Codable {
+    case local
+    case remote
+}
+
 @MainActor
 @Observable
 final class AppState {
@@ -31,7 +36,9 @@ final class AppState {
     @ObservationIgnored private static let wsPortKey = "kanade.wsPort"
     @ObservationIgnored private static let httpPortKey = "kanade.httpPort"
     @ObservationIgnored private static let autoConnectKey = "kanade.autoConnect"
-    @ObservationIgnored private static let controlledNodeIdKey = "kanade.controlledNodeId"
+    @ObservationIgnored private static let controlTargetKey = "kanade.controlTarget"
+    @ObservationIgnored private static let lastRemoteNodeIdKey = "kanade.lastRemoteNodeId"
+    @ObservationIgnored private static let deviceIdKey = "kanade.deviceId"
     @ObservationIgnored private static let localQueueKey = "kanade.localQueue"
     @ObservationIgnored private static let localPositionKey = "kanade.localPosition"
     @ObservationIgnored private static let localRepeatKey = "kanade.localRepeat"
@@ -40,11 +47,33 @@ final class AppState {
 
     @ObservationIgnored private let defaults = UserDefaults.standard
     @ObservationIgnored private var didAttemptStartupConnect = false
+    @ObservationIgnored private var isResolvingControlledNodeId = false
 
     var client: KanadeClient?
     var mediaClient: MediaClient?
+    var controlTarget: ControlTarget {
+        didSet {
+            persistControlTarget()
+            if controlTarget == .local {
+                setResolvedControlledNodeId(localNodeId)
+            }
+        }
+    }
+    var lastRemoteNodeId: String? {
+        didSet { persistLastRemoteNodeId() }
+    }
     var controlledNodeId: String? {
-        didSet { persistControlledNodeId() }
+        didSet {
+            guard !isResolvingControlledNodeId, oldValue != controlledNodeId else { return }
+            guard let controlledNodeId else { return }
+
+            if controlledNodeId == localNodeId {
+                controlTarget = .local
+            } else {
+                controlTarget = .remote
+                lastRemoteNodeId = controlledNodeId
+            }
+        }
     }
     var localPlayback: LocalPlaybackController?
     var localNodeId: String?
@@ -52,7 +81,6 @@ final class AppState {
     var lastKnownCurrentIndex: Int?
     var lastKnownRepeatMode: RepeatMode = .off
     var lastKnownShuffleEnabled = false
-    var lastKnownSelectedNodeId: String?
 
     var serverAddress: String {
         didSet { persistConnectionSettings() }
@@ -68,6 +96,15 @@ final class AppState {
 
     var autoConnectOnLaunch: Bool {
         didSet { persistConnectionSettings() }
+    }
+
+    var deviceId: String {
+        if let existing = defaults.string(forKey: Self.deviceIdKey) {
+            return existing
+        }
+        let newId = UUID().uuidString
+        defaults.set(newId, forKey: Self.deviceIdKey)
+        return newId
     }
 
     var isConnected: Bool { client?.connected ?? false }
@@ -91,7 +128,7 @@ final class AppState {
     }
 
     var isControllingLocalNode: Bool {
-        controlledNodeId != nil && controlledNodeId == localNodeId
+        controlTarget == .local
     }
 
     var shouldShowMiniPlayer: Bool {
@@ -188,8 +225,10 @@ final class AppState {
         wsPort = defaults.object(forKey: Self.wsPortKey) as? Int ?? 8080
         httpPort = defaults.object(forKey: Self.httpPortKey) as? Int ?? 8081
         autoConnectOnLaunch = defaults.object(forKey: Self.autoConnectKey) as? Bool ?? true
-        controlledNodeId = defaults.string(forKey: Self.controlledNodeIdKey)
-        restoreLocalPlaybackIfNeeded()
+        controlTarget = defaults.string(forKey: Self.controlTargetKey).flatMap(ControlTarget.init(rawValue:)) ?? .remote
+        lastRemoteNodeId = defaults.string(forKey: Self.lastRemoteNodeIdKey)
+        controlledNodeId = nil
+        defaults.removeObject(forKey: "kanade.controlledNodeId")
     }
 
     func startupConnectIfNeeded() {
@@ -202,31 +241,22 @@ final class AppState {
     func connect() {
         disconnect()
         persistConnectionSettings()
+
         let wsURL = URL(string: "ws://\(serverAddress):\(wsPort)")!
         let httpURL = URL(string: "http://\(serverAddress):\(httpPort)")!
         let newClient = KanadeClient(
             url: wsURL,
             reconnectPolicy: ReconnectPolicy(initialDelay: 2.0, maxDelay: 10.0, base: 2.0)
         )
+
         newClient.delegate = self
         client = newClient
         mediaClient = MediaClient(baseURL: httpURL)
-        restoreLocalPlaybackIfNeeded()
-        if let localPlayback {
-            localPlayback.onStateUpdate = { [weak self] queue, index, position, status, volume, repeatMode, shuffle in
-                guard let self else { return }
-                self.sendLocalSessionUpdate(
-                    queue: queue,
-                    currentIndex: index,
-                    positionSecs: position,
-                    status: status,
-                    volume: volume,
-                    repeatMode: repeatMode,
-                    shuffle: shuffle
-                )
-                self.saveLocalPlaybackState()
-            }
+
+        if controlTarget == .local {
+            restoreLocalPlaybackIfNeeded()
         }
+
         newClient.connect()
     }
 
@@ -238,6 +268,10 @@ final class AppState {
         client?.disconnect()
         client = nil
         mediaClient = nil
+        localNodeId = nil
+        if controlTarget == .local {
+            setResolvedControlledNodeId(nil)
+        }
     }
 
     func performPlay() {
@@ -379,42 +413,40 @@ final class AppState {
     }
 
     func performSelectNode(_ nodeId: String) {
+        controlTarget = .remote
+        lastRemoteNodeId = nodeId
         controlledNodeId = nodeId
         client?.selectNode(nodeId)
     }
 
     func startLocalPlayback() {
         if localPlayback == nil {
-            localPlayback = LocalPlaybackController(mediaClient: mediaClient)
+            let localPlayback = LocalPlaybackController(mediaClient: mediaClient)
+            localPlayback.onStateUpdate = { [weak self] queue, index, position, status, volume, repeatMode, shuffle in
+                guard let self else { return }
+                self.sendLocalSessionUpdate(
+                    queue: queue,
+                    currentIndex: index,
+                    positionSecs: position,
+                    status: status,
+                    volume: volume,
+                    repeatMode: repeatMode,
+                    shuffle: shuffle
+                )
+                self.saveLocalPlaybackState()
+            }
+            self.localPlayback = localPlayback
         }
 
-        localPlayback?.onStateUpdate = { [weak self] queue, index, position, status, volume, repeatMode, shuffle in
-            guard let self else { return }
-            self.sendLocalSessionUpdate(
-                queue: queue,
-                currentIndex: index,
-                positionSecs: position,
-                status: status,
-                volume: volume,
-                repeatMode: repeatMode,
-                shuffle: shuffle
-            )
-            self.saveLocalPlaybackState()
-        }
-
-        if let client {
-            client.localSessionStart(deviceName: currentDeviceName)
-        }
+        registerLocalSession()
     }
 
     func stopLocalPlayback() {
         localPlayback?.stop()
         localPlayback = nil
         client?.localSessionStop()
-        if controlledNodeId == localNodeId {
-            controlledNodeId = fallbackRemoteNodeId
-        }
         localNodeId = nil
+        controlTarget = .remote
 
         defaults.removeObject(forKey: Self.localQueueKey)
         defaults.removeObject(forKey: Self.localIndexKey)
@@ -424,49 +456,28 @@ final class AppState {
     }
 
     func switchToLocal(tracks: [Track], index: Int, positionSecs: Double?) {
+        controlTarget = .local
         startLocalPlayback()
         localPlayback?.importFromServer(tracks: tracks, index: index, positionSecs: positionSecs)
-        controlledNodeId = localNodeId
     }
 
     func switchToRemote(nodeId: String) {
-        if isControllingLocalNode, let localNodeId {
+        if let localNodeId {
             client?.handoff(fromNodeId: localNodeId, toNodeId: nodeId)
         }
+        controlTarget = .remote
+        lastRemoteNodeId = nodeId
         controlledNodeId = nodeId
         client?.selectNode(nodeId)
     }
 
-    func reRegisterLocalSessionIfNeeded() {
-        guard localPlayback != nil else { return }
-
-        localPlayback?.onStateUpdate = { [weak self] queue, index, position, status, volume, repeatMode, shuffle in
-            guard let self else { return }
-            self.sendLocalSessionUpdate(
-                queue: queue,
-                currentIndex: index,
-                positionSecs: position,
-                status: status,
-                volume: volume,
-                repeatMode: repeatMode,
-                shuffle: shuffle
-            )
-            self.saveLocalPlaybackState()
-        }
-
-        if let localNodeId,
-           let state = client?.state,
-           state.nodes.contains(where: { $0.id == localNodeId }) {
-            sendLocalSessionUpdate()
-            return
-        }
-
-        localNodeId = nil
-        client?.localSessionStart(deviceName: currentDeviceName)
+    func registerLocalSession() {
+        guard let client, client.connected else { return }
+        client.localSessionStart(deviceName: currentDeviceName, deviceId: deviceId)
     }
 
     func sendLocalSessionUpdate() {
-        guard let localPlayback, let client else { return }
+        guard let localPlayback else { return }
         sendLocalSessionUpdate(
             queue: localPlayback.queue.tracks,
             currentIndex: localPlayback.queue.currentIndex,
@@ -506,8 +517,12 @@ final class AppState {
         defaults.set(autoConnectOnLaunch, forKey: Self.autoConnectKey)
     }
 
-    private func persistControlledNodeId() {
-        defaults.set(controlledNodeId, forKey: Self.controlledNodeIdKey)
+    private func persistControlTarget() {
+        defaults.set(controlTarget.rawValue, forKey: Self.controlTargetKey)
+    }
+
+    private func persistLastRemoteNodeId() {
+        defaults.set(lastRemoteNodeId, forKey: Self.lastRemoteNodeIdKey)
     }
 
     func saveLocalPlaybackState() {
@@ -525,7 +540,8 @@ final class AppState {
     }
 
     func restoreLocalPlaybackIfNeeded() {
-        guard localPlayback == nil,
+        guard controlTarget == .local,
+              localPlayback == nil,
               mediaClient != nil,
               let data = defaults.data(forKey: Self.localQueueKey),
               let tracks = try? JSONDecoder().decode([Track].self, from: data),
@@ -533,9 +549,15 @@ final class AppState {
         else { return }
 
         startLocalPlayback()
+
         let index = defaults.object(forKey: Self.localIndexKey) as? Int
         let position = defaults.double(forKey: Self.localPositionKey)
-        localPlayback?.importFromServer(tracks: tracks, index: index ?? 0, positionSecs: position > 0 ? position : nil)
+        localPlayback?.importFromServer(
+            tracks: tracks,
+            index: index ?? 0,
+            positionSecs: position > 0 ? position : nil
+        )
+
         let repeatMode = defaults.string(forKey: Self.localRepeatKey).flatMap(RepeatMode.init(rawValue:)) ?? .off
         localPlayback?.setRepeat(repeatMode)
         localPlayback?.setShuffle(defaults.bool(forKey: Self.localShuffleKey))
@@ -549,27 +571,34 @@ final class AppState {
         #endif
     }
 
-    private var fallbackRemoteNodeId: String? {
-        if let selectedNodeId = client?.state?.selectedNodeId,
-           selectedNodeId != localNodeId {
-            return selectedNodeId
-        }
-
-        if let connectedNode = client?.state?.nodes.first(where: { $0.id != localNodeId && $0.connected }) {
-            return connectedNode.id
-        }
-
-        return client?.state?.nodes.first(where: { $0.id != localNodeId })?.id
-    }
-
     private var controlledRemoteNode: Node? {
-        guard !isControllingLocalNode, let id = controlledNodeId else { return nil }
+        guard controlTarget == .remote, let id = controlledNodeId else { return nil }
         return client?.state?.nodes.first(where: { $0.id == id })
     }
 
+    private var fallbackRemoteNodeId: String? {
+        let excludeId = localNodeId
+
+        if let selected = client?.state?.selectedNodeId, selected != excludeId {
+            return selected
+        }
+
+        return client?.state?.nodes.first(where: { $0.id != excludeId && $0.connected })?.id
+            ?? client?.state?.nodes.first(where: { $0.id != excludeId })?.id
+    }
+
+    private func setResolvedControlledNodeId(_ nodeId: String?) {
+        guard controlledNodeId != nodeId else { return }
+        isResolvingControlledNodeId = true
+        controlledNodeId = nodeId
+        isResolvingControlledNodeId = false
+    }
+
     private func syncRemoteSelectionIfNeeded() {
-        guard !isControllingLocalNode,
+        guard controlTarget == .remote,
               let controlledNodeId,
+              controlledNodeId != localNodeId,
+              client?.state?.nodes.contains(where: { $0.id == controlledNodeId }) == true,
               controlledNodeId != client?.state?.selectedNodeId
         else { return }
 
@@ -577,25 +606,24 @@ final class AppState {
     }
 
     private func refreshEffectiveFallbacks(from state: PlaybackState) {
-        self.lastKnownQueue = state.queue
-        self.lastKnownCurrentIndex = state.currentIndex
-        self.lastKnownRepeatMode = state.repeatMode
-        self.lastKnownShuffleEnabled = state.shuffle
-        self.lastKnownSelectedNodeId = state.selectedNodeId
+        lastKnownQueue = state.queue
+        lastKnownCurrentIndex = state.currentIndex
+        lastKnownRepeatMode = state.repeatMode
+        lastKnownShuffleEnabled = state.shuffle
 
         if let controlledNodeId,
            let controlledNode = state.nodes.first(where: { $0.id == controlledNodeId }) {
             if let queue = controlledNode.queue {
-                self.lastKnownQueue = queue
+                lastKnownQueue = queue
             }
             if let currentIndex = controlledNode.currentIndex {
-                self.lastKnownCurrentIndex = currentIndex
+                lastKnownCurrentIndex = currentIndex
             }
             if let repeatMode = controlledNode.repeatMode {
-                self.lastKnownRepeatMode = repeatMode
+                lastKnownRepeatMode = repeatMode
             }
             if let shuffle = controlledNode.shuffle {
-                self.lastKnownShuffleEnabled = shuffle
+                lastKnownShuffleEnabled = shuffle
             }
             return
         }
@@ -603,16 +631,16 @@ final class AppState {
         if let selectedNodeId = state.selectedNodeId,
            let selectedNode = state.nodes.first(where: { $0.id == selectedNodeId }) {
             if let queue = selectedNode.queue {
-                self.lastKnownQueue = queue
+                lastKnownQueue = queue
             }
             if let currentIndex = selectedNode.currentIndex {
-                self.lastKnownCurrentIndex = currentIndex
+                lastKnownCurrentIndex = currentIndex
             }
             if let repeatMode = selectedNode.repeatMode {
-                self.lastKnownRepeatMode = repeatMode
+                lastKnownRepeatMode = repeatMode
             }
             if let shuffle = selectedNode.shuffle {
-                self.lastKnownShuffleEnabled = shuffle
+                lastKnownShuffleEnabled = shuffle
             }
         }
     }
@@ -622,7 +650,9 @@ extension AppState: KanadeClientDelegate {
     nonisolated func clientDidConnect(_ client: KanadeClient) {
         Task { @MainActor [weak self] in
             guard let self else { return }
-            self.reRegisterLocalSessionIfNeeded()
+            if self.localPlayback != nil {
+                self.registerLocalSession()
+            }
         }
     }
 
@@ -632,25 +662,39 @@ extension AppState: KanadeClientDelegate {
         Task { @MainActor [weak self] in
             guard let self else { return }
 
-            self.refreshEffectiveFallbacks(from: state)
+            let matchedLocalNode = state.nodes.first(where: { $0.deviceId == self.deviceId })
+                ?? state.nodes.first(where: { $0.nodeType == .local && $0.name == self.currentDeviceName })
 
-            if self.localNodeId == nil,
-               let localNode = state.nodes.first(where: { $0.nodeType == .local && $0.name == self.currentDeviceName }) {
-                self.localNodeId = localNode.id
-                if self.localPlayback != nil && self.controlledNodeId == nil {
-                    self.controlledNodeId = localNode.id
-                }
+            if let matchedLocalNode {
+                self.localNodeId = matchedLocalNode.id
+            } else if let localNodeId = self.localNodeId,
+                      !state.nodes.contains(where: { $0.id == localNodeId }) {
+                self.localNodeId = nil
             }
 
-            if self.controlledNodeId == nil {
-                if self.localPlayback != nil, let localNodeId = self.localNodeId {
-                    self.controlledNodeId = localNodeId
-                } else if let selectedNodeId = state.selectedNodeId {
-                    self.controlledNodeId = selectedNodeId
-                } else if let connectedNode = state.nodes.first(where: \.connected) {
-                    self.controlledNodeId = connectedNode.id
+            if self.localPlayback != nil && self.localNodeId == nil {
+                self.registerLocalSession()
+            }
+
+            switch self.controlTarget {
+            case .local:
+                if let localNodeId = self.localNodeId {
+                    self.setResolvedControlledNodeId(localNodeId)
                 } else {
-                    self.controlledNodeId = state.nodes.first?.id
+                    self.setResolvedControlledNodeId(nil)
+                }
+            case .remote:
+                let preferred = self.lastRemoteNodeId ?? state.selectedNodeId
+
+                if let preferred,
+                   state.nodes.contains(where: { $0.id == preferred }) {
+                    self.setResolvedControlledNodeId(preferred)
+                } else if let connected = state.nodes.first(where: { $0.deviceId != self.deviceId && $0.connected }) {
+                    self.setResolvedControlledNodeId(connected.id)
+                } else {
+                    self.setResolvedControlledNodeId(
+                        state.nodes.first(where: { $0.deviceId != self.deviceId })?.id
+                    )
                 }
             }
 
@@ -661,13 +705,7 @@ extension AppState: KanadeClientDelegate {
                 client.selectNode(controlledNodeId)
             }
 
-            if let controlledNodeId = self.controlledNodeId,
-               controlledNodeId != self.localNodeId,
-               !state.nodes.contains(where: { $0.id == controlledNodeId }) {
-                self.controlledNodeId = state.selectedNodeId
-                    ?? state.nodes.first(where: \.connected)?.id
-                    ?? state.nodes.first?.id
-            }
+            self.refreshEffectiveFallbacks(from: state)
         }
     }
 }

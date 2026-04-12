@@ -7,7 +7,7 @@ struct NodesView: View {
     private var client: KanadeClient? { appState.client }
     private var nodes: [Node] { client?.state?.nodes ?? [] }
     private var remoteNodes: [Node] {
-        nodes.filter { $0.id != appState.localNodeId }
+        nodes.filter { $0.deviceId != appState.deviceId }
     }
 
     var body: some View {
@@ -15,9 +15,7 @@ struct NodesView: View {
             Section {
                 Button {
                     if appState.localPlayback != nil {
-                        if let localNodeId = appState.localNodeId {
-                            appState.controlledNodeId = localNodeId
-                        }
+                        appState.controlTarget = .local
                     } else {
                         appState.switchToLocal(
                             tracks: appState.effectiveQueue,
@@ -173,7 +171,7 @@ struct NodesView: View {
     }
 
     private var isLocalSelected: Bool {
-        appState.controlledNodeId == appState.localNodeId && appState.localNodeId != nil
+        appState.isControllingLocalNode
     }
 
     private var localNode: Node? {

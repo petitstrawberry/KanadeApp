@@ -9,7 +9,7 @@ struct OutputPickerMenuContent: View {
     }
 
     private var remoteNodes: [Node] {
-        nodes.filter { $0.id != appState.localNodeId }
+        nodes.filter { $0.deviceId != appState.deviceId }
     }
 
     private var localNode: Node? {
@@ -22,16 +22,14 @@ struct OutputPickerMenuContent: View {
     }
 
     private var isControllingLocal: Bool {
-        appState.controlledNodeId == appState.localNodeId && appState.localNodeId != nil
+        appState.isControllingLocalNode
     }
 
     var body: some View {
         Section {
             Button {
                 if isLocalPlaybackActive {
-                    if let localNodeId = appState.localNodeId {
-                        appState.controlledNodeId = localNodeId
-                    }
+                    appState.controlTarget = .local
                 } else {
                     appState.switchToLocal(
                         tracks: appState.effectiveQueue,
