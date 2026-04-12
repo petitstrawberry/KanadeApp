@@ -59,7 +59,7 @@ struct OutputPickerMenuContent: View {
             Section("Speakers") {
                 ForEach(remoteNodes) { node in
                     Button {
-                        appState.switchToRemote(nodeId: node.id)
+                        appState.performSelectNode(node.id)
                     } label: {
                         HStack {
                             Text(node.name)

@@ -458,14 +458,18 @@ final class AppState {
     }
 
     func switchToLocal(tracks: [Track], index: Int, positionSecs: Double?) {
+        let wasPlaying = effectiveTransportState?.isPlayingLike == true
         startLocalPlayback()
         localPlayback?.importFromServer(tracks: tracks, index: index, positionSecs: positionSecs)
         controlTarget = .local
+        if wasPlaying {
+            localPlayback?.play()
+        }
     }
 
     func switchToRemote(nodeId: String) {
-        if let localNodeId {
-            client?.handoff(fromNodeId: localNodeId, toNodeId: nodeId)
+        if let from = controlledNodeId, from != nodeId {
+            client?.handoff(fromNodeId: from, toNodeId: nodeId)
         }
         controlTarget = .remote
         lastRemoteNodeId = nodeId

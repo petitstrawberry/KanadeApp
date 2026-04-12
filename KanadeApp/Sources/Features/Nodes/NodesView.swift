@@ -40,7 +40,7 @@ struct NodesView: View {
                 Section("Remote Nodes") {
                     ForEach(remoteNodes) { node in
                         Button {
-                            appState.switchToRemote(nodeId: node.id)
+                            appState.performSelectNode(node.id)
                         } label: {
                             nodeRow(node)
                         }
