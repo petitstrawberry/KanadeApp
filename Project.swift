@@ -25,6 +25,10 @@ let project = Project(
                     "NSAppTransportSecurity": [
                         "NSAllowsLocalNetworking": true,
                     ],
+                    "NSBonjourServices": [
+                        "_kanade._tcp",
+                    ],
+                    "NSLocalNetworkUsageDescription": "Kanade uses the local network to discover and connect to music servers.",
                 ]
             ),
             sources: ["KanadeApp/Sources/**"],
@@ -43,6 +47,9 @@ let project = Project(
                 with: [
                     "NSAppTransportSecurity": [
                         "NSAllowsLocalNetworking": true,
+                    ],
+                    "NSBonjourServices": [
+                        "_kanade._tcp",
                     ],
                 ]
             ),

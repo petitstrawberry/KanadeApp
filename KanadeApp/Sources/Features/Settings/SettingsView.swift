@@ -5,8 +5,55 @@ struct SettingsView: View {
 
     var body: some View {
         @Bindable var appState = appState
+        let discovery = appState.serverDiscovery
 
         Form {
+            if !discovery.servers.isEmpty || discovery.isBrowsing {
+                Section {
+                    if discovery.servers.isEmpty {
+                        HStack {
+                            Spacer()
+                            ProgressView()
+                                .controlSize(.small)
+                            Text("Scanning...")
+                                .foregroundStyle(.secondary)
+                            Spacer()
+                        }
+                    } else {
+                        ForEach(discovery.servers) { server in
+                            Button {
+                                appState.serverAddress = server.host
+                                appState.wsPort = server.port
+                                if let httpPort = server.httpPort {
+                                    appState.httpPort = httpPort
+                                }
+                            } label: {
+                                HStack {
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(server.name)
+                                            .font(.headline)
+                                        Text("\(server.host):\(server.port)")
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    Spacer()
+                                    if server.persistent {
+                                        Image(systemName: "pin.fill")
+                                            .foregroundStyle(.orange)
+                                            .font(.caption)
+                                    }
+                                    Circle()
+                                        .fill(Color.green)
+                                        .frame(width: 8, height: 8)
+                                }
+                            }
+                        }
+                    }
+                } header: {
+                    Text("Discovered on Local Network")
+                }
+            }
+
             Section("Server Connection") {
                 LabeledContent("Status") {
                     HStack(spacing: 8) {
@@ -74,5 +121,7 @@ struct SettingsView: View {
         #if os(macOS)
         .formStyle(.grouped)
         #endif
+        .onAppear { discovery.startBrowsing() }
+        .onDisappear { discovery.stopBrowsing() }
     }
 }

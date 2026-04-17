@@ -50,6 +50,7 @@ final class AppState {
     @ObservationIgnored private var isResolvingControlledNodeId = false
 
     var showRemoteUnavailablePrompt = false
+    var serverDiscovery = ServerDiscovery()
 
     var client: KanadeClient?
     var mediaClient: MediaClient?

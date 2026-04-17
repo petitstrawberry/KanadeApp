@@ -53,6 +53,11 @@ final class LocalPlaybackController {
             return
         }
 
+        if renderer.state.status == .stopped, currentTrack != nil {
+            loadCurrentTrack(autoplay: true)
+            return
+        }
+
         renderer.play()
         updateNowPlaying()
     }
