@@ -24,9 +24,9 @@ struct QueueView: View {
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
 
-                    let otherNodes = appState.client?.state?.nodes.filter {
-                        $0.id != appState.controlledNodeId && $0.deviceId != appState.deviceId && $0.nodeType != .local
-                    } ?? []
+                    let otherNodes = appState.remoteNodes.filter {
+                        $0.id != appState.controlledNodeId
+                    }
 
                     if !otherNodes.isEmpty {
                         Menu {

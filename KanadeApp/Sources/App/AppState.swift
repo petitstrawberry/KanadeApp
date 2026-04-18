@@ -614,6 +614,12 @@ final class AppState {
         #endif
     }
 
+    var remoteNodes: [Node] {
+        (client?.state?.nodes ?? []).filter {
+            $0.connected && $0.nodeType != .local && $0.deviceId != deviceId
+        }
+    }
+
     private var controlledRemoteNode: Node? {
         guard controlTarget == .remote, let id = controlledNodeId else { return nil }
         return client?.state?.nodes.first(where: { $0.id == id })

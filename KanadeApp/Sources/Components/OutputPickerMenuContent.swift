@@ -8,9 +8,7 @@ struct OutputPickerMenuContent: View {
         appState.client?.state?.nodes ?? []
     }
 
-    private var remoteNodes: [Node] {
-        nodes.filter { $0.deviceId != appState.deviceId }
-    }
+    private var remoteNodes: [Node] { appState.remoteNodes }
 
     private var localNode: Node? {
         guard let localNodeId = appState.localNodeId else { return nil }

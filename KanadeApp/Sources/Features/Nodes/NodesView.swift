@@ -4,11 +4,7 @@ import KanadeKit
 struct NodesView: View {
     @Environment(AppState.self) private var appState
 
-    private var client: KanadeClient? { appState.client }
-    private var nodes: [Node] { client?.state?.nodes ?? [] }
-    private var remoteNodes: [Node] {
-        nodes.filter { $0.deviceId != appState.deviceId }
-    }
+    private var remoteNodes: [Node] { appState.remoteNodes }
 
     var body: some View {
         List {
@@ -177,7 +173,7 @@ struct NodesView: View {
 
     private var localNode: Node? {
         guard let localNodeId = appState.localNodeId else { return nil }
-        return nodes.first(where: { $0.id == localNodeId })
+        return appState.client?.state?.nodes.first(where: { $0.id == localNodeId })
     }
 
     private var localCurrentTrack: Track? {
