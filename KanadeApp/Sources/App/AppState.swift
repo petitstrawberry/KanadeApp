@@ -278,22 +278,19 @@ final class AppState {
         disconnect()
         persistConnectionSettings()
 
-        let scheme = useTLS ? "wss" : "ws"
-        let httpScheme = useTLS ? "https" : "http"
-        let wsURL = URL(string: "\(scheme)://\(serverAddress):\(serverPort)/ws")!
-        let httpURL = URL(string: "\(httpScheme)://\(serverAddress):\(serverPort)")!
-
         let tlsConfig: TLSConfiguration? = useTLS ? buildTLSConfiguration() : nil
 
         let newClient = KanadeClient(
-            url: wsURL,
+            host: serverAddress,
+            port: serverPort,
+            useTLS: useTLS,
             reconnectPolicy: ReconnectPolicy(initialDelay: 2.0, maxDelay: 10.0, base: 2.0),
             tlsConfiguration: tlsConfig
         )
 
         newClient.delegate = self
         client = newClient
-        mediaClient = MediaClient(baseURL: httpURL)
+        mediaClient = MediaClient(host: serverAddress, port: serverPort, useTLS: useTLS)
 
         newClient.connect()
     }
