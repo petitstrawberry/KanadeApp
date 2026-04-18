@@ -15,6 +15,7 @@ let project = Project(
             deploymentTarget: DeploymentTarget.iOS(targetVersion: "26.0", devices: [.iphone, .ipad]),
             infoPlist: .extendingDefault(
                 with: [
+                    "CFBundleDisplayName": "Kanade",
                     "UILaunchScreen": [
                         "UIColorName": "",
                         "UIImageName": "",
@@ -35,7 +36,13 @@ let project = Project(
             resources: ["KanadeApp/Resources/**"],
             dependencies: [
                 .package(product: "KanadeKit"),
-            ]
+            ],
+            settings: .settings(
+                base: [
+                    "INFOPLIST_KEY_CFBundleDisplayName": "Kanade",
+                    "PRODUCT_DISPLAY_NAME": "Kanade",
+                ]
+            )
         ),
         Target(
             name: "KanadeAppMac",
@@ -45,6 +52,8 @@ let project = Project(
             deploymentTarget: DeploymentTarget.macOS(targetVersion: "26.0"),
             infoPlist: .extendingDefault(
                 with: [
+                    "CFBundleDisplayName": "Kanade",
+                    "LSApplicationCategoryType": "public.app-category.music",
                     "NSAppTransportSecurity": [
                         "NSAllowsLocalNetworking": true,
                     ],
@@ -58,7 +67,13 @@ let project = Project(
             entitlements: "KanadeApp/Config/KanadeAppMac.entitlements",
             dependencies: [
                 .package(product: "KanadeKit"),
-            ]
+            ],
+            settings: .settings(
+                base: [
+                    "INFOPLIST_KEY_CFBundleDisplayName": "Kanade",
+                    "PRODUCT_DISPLAY_NAME": "Kanade",
+                ]
+            )
         ),
         Target(
             name: "KanadeAppTests",
