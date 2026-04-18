@@ -24,9 +24,11 @@ final class LocalPlaybackController {
 
     init(mediaClient: MediaClient?) {
         self.mediaClient = mediaClient
-        self.renderer = AVQueuePlayerRenderer(mediaClient: mediaClient)
+        self.renderer = AVQueuePlayerRenderer()
         self.queue = LocalQueue()
         self.nowPlayingManager = NowPlayingManager()
+
+        self.renderer.mediaClient = mediaClient
 
         nowPlayingManager.configureAudioSession()
         bindRenderer()
@@ -37,7 +39,7 @@ final class LocalPlaybackController {
 
     func updateMediaClient(_ mediaClient: MediaClient?) {
         self.mediaClient = mediaClient
-        renderer.updateMediaClient(mediaClient)
+        renderer.mediaClient = mediaClient
     }
 
     deinit {
