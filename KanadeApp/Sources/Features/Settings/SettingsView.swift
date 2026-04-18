@@ -11,6 +11,7 @@ struct SettingsView: View {
 
     @State private var showImporter = false
     @State private var importTarget: ImportTarget = .clientCertificate
+    @State private var passwordInput = ""
 
     var body: some View {
         @Bindable var appState = appState
@@ -98,6 +99,9 @@ struct SettingsView: View {
                     if appState.isConnected {
                         appState.disconnect()
                     } else {
+                        if !passwordInput.isEmpty {
+                            appState.clientCertificatePassword = passwordInput
+                        }
                         appState.connect()
                     }
                 }
@@ -134,11 +138,11 @@ struct SettingsView: View {
                     if appState.hasClientCertificate {
                         #if os(iOS)
                         LabeledContent("Password") {
-                            SecureField("Required", text: $appState.clientCertificatePassword)
+                            SecureField("Required", text: $passwordInput)
                                 .multilineTextAlignment(.trailing)
                         }
                         #else
-                        SecureField("Certificate Password", text: $appState.clientCertificatePassword)
+                        SecureField("Certificate Password", text: $passwordInput)
                             .multilineTextAlignment(.trailing)
                         #endif
                     }

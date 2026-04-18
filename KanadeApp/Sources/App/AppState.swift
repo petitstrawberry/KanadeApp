@@ -109,7 +109,9 @@ final class AppState {
     }
 
     var clientCertificatePassword: String {
-        didSet { saveToKeychain(key: "kanade.p12password", data: Data(clientCertificatePassword.utf8)) }
+        didSet {
+            saveToKeychain(key: "kanade.p12password", data: Data(clientCertificatePassword.utf8))
+        }
     }
 
     var hasClientCertificate: Bool {
