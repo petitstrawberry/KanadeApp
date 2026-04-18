@@ -1,7 +1,16 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct SettingsView: View {
     @Environment(AppState.self) private var appState
+
+    private enum ImportTarget {
+        case clientCertificate
+        case trustedCA
+    }
+
+    @State private var showImporter = false
+    @State private var importTarget: ImportTarget = .clientCertificate
 
     var body: some View {
         @Bindable var appState = appState
@@ -108,6 +117,66 @@ struct SettingsView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
 
+            Section("TLS / mTLS") {
+                Toggle("Use TLS (wss://)", isOn: $appState.useTLS)
+
+                if appState.useTLS {
+                    Toggle("Allow Self-Signed Server Certificate", isOn: $appState.allowSelfSignedServer)
+
+                    LabeledContent("Client Certificate") {
+                        HStack(spacing: 8) {
+                            if appState.hasClientCertificate {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .foregroundStyle(.green)
+                                Button("Remove") {
+                                    appState.removeClientCertificate()
+                                }
+                                .foregroundStyle(.red)
+                            } else {
+                                Image(systemName: "xmark.circle")
+                                    .foregroundStyle(.secondary)
+                            }
+                            Button("Import .p12") {
+                                importTarget = .clientCertificate
+                                showImporter = true
+                            }
+                        }
+                    }
+
+                    if appState.hasClientCertificate {
+                        #if os(iOS)
+                        LabeledContent("Password") {
+                            SecureField("Required", text: $appState.clientCertificatePassword)
+                                .multilineTextAlignment(.trailing)
+                        }
+                        #else
+                        SecureField("Certificate Password", text: $appState.clientCertificatePassword)
+                            .multilineTextAlignment(.trailing)
+                        #endif
+                    }
+
+                    LabeledContent("Trusted CA") {
+                        HStack(spacing: 8) {
+                            if appState.trustedCAData != nil {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .foregroundStyle(.green)
+                                Button("Remove") {
+                                    appState.trustedCAData = nil
+                                }
+                                .foregroundStyle(.red)
+                            } else {
+                                Image(systemName: "xmark.circle")
+                                    .foregroundStyle(.secondary)
+                            }
+                            Button("Import .pem") {
+                                importTarget = .trustedCA
+                                showImporter = true
+                            }
+                        }
+                    }
+                }
+            }
+
             Section("About") {
                 LabeledContent("App") {
                     Text("Kanade")
@@ -121,6 +190,22 @@ struct SettingsView: View {
         #if os(macOS)
         .formStyle(.grouped)
         #endif
+        .fileImporter(
+            isPresented: $showImporter,
+            allowedContentTypes: [.data],
+            allowsMultipleSelection: false
+        ) { result in
+            guard let urls = try? result.get(), let url = urls.first else { return }
+            guard url.startAccessingSecurityScopedResource() else { return }
+            defer { url.stopAccessingSecurityScopedResource() }
+            guard let data = try? Data(contentsOf: url) else { return }
+            switch importTarget {
+            case .clientCertificate:
+                appState.importClientCertificate(data: data)
+            case .trustedCA:
+                appState.trustedCAData = data
+            }
+        }
         .onAppear { discovery.startBrowsing() }
         .onDisappear { discovery.stopBrowsing() }
     }

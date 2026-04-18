@@ -1,5 +1,6 @@
 import SwiftUI
 import KanadeKit
+import Security
 
 enum ControlTarget: String, Codable {
     case local
@@ -44,6 +45,9 @@ final class AppState {
     @ObservationIgnored private static let localRepeatKey = "kanade.localRepeat"
     @ObservationIgnored private static let localShuffleKey = "kanade.localShuffle"
     @ObservationIgnored private static let localIndexKey = "kanade.localIndex"
+    @ObservationIgnored private static let useTLSKey = "kanade.useTLS"
+    @ObservationIgnored private static let allowSelfSignedKey = "kanade.allowSelfSigned"
+    @ObservationIgnored private static let trustedCADataKey = "kanade.trustedCAData"
 
     @ObservationIgnored private let defaults = UserDefaults.standard
     @ObservationIgnored private var didAttemptStartupConnect = false
@@ -98,6 +102,26 @@ final class AppState {
     }
 
     var autoConnectOnLaunch: Bool {
+        didSet { persistConnectionSettings() }
+    }
+
+    var useTLS: Bool {
+        didSet { persistConnectionSettings() }
+    }
+
+    var allowSelfSignedServer: Bool {
+        didSet { persistConnectionSettings() }
+    }
+
+    var clientCertificatePassword: String {
+        didSet { saveToKeychain(key: "kanade.p12password", data: Data(clientCertificatePassword.utf8)) }
+    }
+
+    var hasClientCertificate: Bool {
+        loadFromKeychain(key: "kanade.p12") != nil
+    }
+
+    var trustedCAData: Data? {
         didSet { persistConnectionSettings() }
     }
 
@@ -228,6 +252,10 @@ final class AppState {
         wsPort = defaults.object(forKey: Self.wsPortKey) as? Int ?? 8080
         httpPort = defaults.object(forKey: Self.httpPortKey) as? Int ?? 8081
         autoConnectOnLaunch = defaults.object(forKey: Self.autoConnectKey) as? Bool ?? true
+        useTLS = defaults.object(forKey: Self.useTLSKey) as? Bool ?? false
+        allowSelfSignedServer = defaults.object(forKey: Self.allowSelfSignedKey) as? Bool ?? false
+        clientCertificatePassword = Self.loadFromKeychainStatic(key: "kanade.p12password").flatMap { String(data: $0, encoding: .utf8) } ?? ""
+        trustedCAData = defaults.object(forKey: Self.trustedCADataKey) as? Data
         controlTarget = defaults.string(forKey: Self.controlTargetKey).flatMap(ControlTarget.init(rawValue:)) ?? .remote
         lastRemoteNodeId = defaults.string(forKey: Self.lastRemoteNodeIdKey)
         controlledNodeId = nil
@@ -245,11 +273,17 @@ final class AppState {
         disconnect()
         persistConnectionSettings()
 
-        let wsURL = URL(string: "ws://\(serverAddress):\(wsPort)")!
-        let httpURL = URL(string: "http://\(serverAddress):\(httpPort)")!
+        let scheme = useTLS ? "wss" : "ws"
+        let httpScheme = useTLS ? "https" : "http"
+        let wsURL = URL(string: "\(scheme)://\(serverAddress):\(wsPort)")!
+        let httpURL = URL(string: "\(httpScheme)://\(serverAddress):\(httpPort)")!
+
+        let tlsConfig: TLSConfiguration? = useTLS ? buildTLSConfiguration() : nil
+
         let newClient = KanadeClient(
             url: wsURL,
-            reconnectPolicy: ReconnectPolicy(initialDelay: 2.0, maxDelay: 10.0, base: 2.0)
+            reconnectPolicy: ReconnectPolicy(initialDelay: 2.0, maxDelay: 10.0, base: 2.0),
+            tlsConfiguration: tlsConfig
         )
 
         newClient.delegate = self
@@ -522,6 +556,9 @@ final class AppState {
         defaults.set(wsPort, forKey: Self.wsPortKey)
         defaults.set(httpPort, forKey: Self.httpPortKey)
         defaults.set(autoConnectOnLaunch, forKey: Self.autoConnectKey)
+        defaults.set(useTLS, forKey: Self.useTLSKey)
+        defaults.set(allowSelfSignedServer, forKey: Self.allowSelfSignedKey)
+        defaults.set(trustedCAData, forKey: Self.trustedCADataKey)
     }
 
     private func persistControlTarget() {
@@ -712,5 +749,82 @@ extension AppState: KanadeClientDelegate {
 
             self.refreshEffectiveFallbacks(from: state)
         }
+    }
+
+    func importClientCertificate(data: Data) {
+        saveToKeychain(key: "kanade.p12", data: data)
+    }
+
+    func removeClientCertificate() {
+        deleteFromKeychain(key: "kanade.p12")
+        deleteFromKeychain(key: "kanade.p12password")
+        clientCertificatePassword = ""
+    }
+
+    func loadClientCertificate() -> Data? {
+        loadFromKeychain(key: "kanade.p12")
+    }
+
+    private static func loadFromKeychainStatic(key: String) -> Data? {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrAccount as String: key,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne,
+        ]
+        var result: AnyObject?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        guard status == errSecSuccess else { return nil }
+        return result as? Data
+    }
+
+    private func saveToKeychain(key: String, data: Data) {
+        deleteFromKeychain(key: key)
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrAccount as String: key,
+            kSecValueData as String: data,
+            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock,
+        ]
+        SecItemAdd(query as CFDictionary, nil)
+    }
+
+    private func loadFromKeychain(key: String) -> Data? {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrAccount as String: key,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne,
+        ]
+        var result: AnyObject?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        guard status == errSecSuccess else { return nil }
+        return result as? Data
+    }
+
+    private func deleteFromKeychain(key: String) {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrAccount as String: key,
+        ]
+        SecItemDelete(query as CFDictionary)
+    }
+
+    private func buildTLSConfiguration() -> TLSConfiguration {
+        var identity: SecIdentity?
+        if let p12Data = loadClientCertificate() {
+            identity = try? TLSConfiguration.identityFromPKCS12(data: p12Data, password: clientCertificatePassword)
+        }
+
+        var caCerts: [SecCertificate]?
+        if let caData = trustedCAData, let pem = String(data: caData, encoding: .utf8) {
+            caCerts = TLSConfiguration.certificatesFromPEM(pem)
+        }
+
+        return TLSConfiguration(
+            clientIdentity: identity,
+            trustedCACertificates: caCerts,
+            allowSelfSignedServer: allowSelfSignedServer
+        )
     }
 }

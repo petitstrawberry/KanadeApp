@@ -32,6 +32,11 @@ struct LibraryView: View {
         .task {
             await loadLibrary()
         }
+        .onChange(of: appState.isConnected) {
+            if appState.isConnected && albums.isEmpty {
+                Task { await loadLibrary() }
+            }
+        }
     }
 
     @ViewBuilder
