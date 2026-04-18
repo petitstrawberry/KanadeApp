@@ -290,10 +290,6 @@ final class AppState {
         client = newClient
         mediaClient = MediaClient(baseURL: httpURL)
 
-        if controlTarget == .local {
-            restoreLocalPlaybackIfNeeded()
-        }
-
         newClient.connect()
     }
 
@@ -694,6 +690,9 @@ extension AppState: KanadeClientDelegate {
     nonisolated func clientDidConnect(_ client: KanadeClient) {
         Task { @MainActor [weak self] in
             guard let self else { return }
+            if self.controlTarget == .local {
+                self.restoreLocalPlaybackIfNeeded()
+            }
             if self.localPlayback != nil {
                 self.registerLocalSession()
             }
