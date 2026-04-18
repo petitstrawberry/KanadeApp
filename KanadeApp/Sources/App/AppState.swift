@@ -631,7 +631,7 @@ final class AppState {
 
     var remoteNodes: [Node] {
         (client?.state?.nodes ?? []).filter {
-            $0.connected && $0.nodeType != .local && $0.deviceId != deviceId
+            $0.connected && $0.deviceId != deviceId
         }
     }
 

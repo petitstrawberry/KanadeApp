@@ -35,13 +35,15 @@ struct NodesView: View {
             } else {
                 Section("Remote Nodes") {
                     ForEach(remoteNodes) { node in
+                        let isLocalSession = node.nodeType == .local
                         Button {
                             appState.performSelectNode(node.id)
                         } label: {
                             nodeRow(node)
+                                .foregroundStyle(isLocalSession ? .secondary : .primary)
                         }
                         .buttonStyle(.plain)
-                        .disabled(node.nodeType == .local)
+                        .disabled(isLocalSession)
                         .listRowBackground(isSelected(node) ? Color.accentColor.opacity(0.14) : Color.clear)
                         .contextMenu {
                             Button {
