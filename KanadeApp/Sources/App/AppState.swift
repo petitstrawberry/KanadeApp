@@ -292,7 +292,19 @@ final class AppState {
 
         newClient.delegate = self
         client = newClient
-        mediaClient = MediaClient(host: serverAddress, port: serverPort, useTLS: useTLS, tlsConfiguration: tlsConfig)
+        let newMediaClient = MediaClient(host: serverAddress, port: serverPort, useTLS: useTLS, tlsConfiguration: tlsConfig)
+        let signer = MediaAuthSigner { [weak newClient] paths in
+            guard let newClient else {
+                throw KanadeError.connectionLost
+            }
+            let response = try await newClient.sendRequest(req: "sign_urls", data: ["paths": paths])
+            guard let signedURLs = response["signed_urls"] as? [String: String] else {
+                throw KanadeError.unknownResponse("signed_urls")
+            }
+            return signedURLs
+        }
+        newMediaClient.setMediaAuthSigner(signer)
+        mediaClient = newMediaClient
         localPlayback?.updateMediaClient(mediaClient)
 
         newClient.connect()
@@ -305,6 +317,7 @@ final class AppState {
     func disconnect() {
         client?.disconnect()
         client = nil
+        mediaClient?.clearMediaAuthSigner()
         mediaClient = nil
         localPlayback?.updateMediaClient(nil)
         localNodeId = nil
@@ -712,7 +725,7 @@ extension AppState: KanadeClientDelegate {
 
     nonisolated func clientDidDisconnect(_ client: KanadeClient, error: (any Error)?) {
         Task { @MainActor [weak self] in
-            self?.mediaClient?.clearMediaAuth()
+            self?.mediaClient?.clearMediaAuthSigner()
         }
     }
 
@@ -762,13 +775,6 @@ extension AppState: KanadeClientDelegate {
             }
 
             self.refreshEffectiveFallbacks(from: state)
-        }
-    }
-
-    nonisolated func client(_ client: KanadeClient, didReceiveMediaAuthKey key: String, keyId: String) {
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            self.mediaClient?.setMediaAuthKey(keyId, host: self.serverAddress)
         }
     }
 
