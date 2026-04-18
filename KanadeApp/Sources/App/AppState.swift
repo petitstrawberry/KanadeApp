@@ -290,7 +290,8 @@ final class AppState {
 
         newClient.delegate = self
         client = newClient
-        mediaClient = MediaClient(host: serverAddress, port: serverPort, useTLS: useTLS)
+        mediaClient = MediaClient(host: serverAddress, port: serverPort, useTLS: useTLS, tlsConfiguration: tlsConfig)
+        localPlayback?.updateMediaClient(mediaClient)
 
         newClient.connect()
     }
@@ -303,6 +304,7 @@ final class AppState {
         client?.disconnect()
         client = nil
         mediaClient = nil
+        localPlayback?.updateMediaClient(nil)
         localNodeId = nil
         if controlTarget == .local {
             setResolvedControlledNodeId(nil)
@@ -700,7 +702,11 @@ extension AppState: KanadeClientDelegate {
         }
     }
 
-    nonisolated func clientDidDisconnect(_ client: KanadeClient, error: (any Error)?) {}
+    nonisolated func clientDidDisconnect(_ client: KanadeClient, error: (any Error)?) {
+        Task { @MainActor [weak self] in
+            self?.mediaClient?.clearMediaAuth()
+        }
+    }
 
     nonisolated func client(_ client: KanadeClient, didUpdateState state: PlaybackState) {
         Task { @MainActor [weak self] in
@@ -748,6 +754,13 @@ extension AppState: KanadeClientDelegate {
             }
 
             self.refreshEffectiveFallbacks(from: state)
+        }
+    }
+
+    nonisolated func client(_ client: KanadeClient, didReceiveMediaAuthKey key: String, keyId: String) {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            self.mediaClient?.setMediaAuthKey(keyId, host: self.serverAddress)
         }
     }
 
@@ -813,7 +826,11 @@ extension AppState: KanadeClientDelegate {
     private func buildTLSConfiguration() -> TLSConfiguration {
         var identity: SecIdentity?
         if let p12Data = loadClientCertificate() {
-            identity = try? TLSConfiguration.identityFromPKCS12(data: p12Data, password: clientCertificatePassword)
+            do {
+                identity = try TLSConfiguration.identityFromPKCS12(data: p12Data, password: clientCertificatePassword)
+            } catch {
+                print("[AppState] Failed to load client certificate: \(error)")
+            }
         }
 
         var caCerts: [SecCertificate]?

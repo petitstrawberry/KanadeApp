@@ -9,7 +9,7 @@ final class LocalPlaybackController {
     let queue: LocalQueue
     let nowPlayingManager: NowPlayingManager
 
-    @ObservationIgnored private let mediaClient: MediaClient?
+    @ObservationIgnored private var mediaClient: MediaClient?
     @ObservationIgnored private var updateTimer: Task<Void, Never>?
     @ObservationIgnored private var cachedArtworkAlbumId: String?
     @ObservationIgnored private var cachedArtworkData: Data?
@@ -24,7 +24,7 @@ final class LocalPlaybackController {
 
     init(mediaClient: MediaClient?) {
         self.mediaClient = mediaClient
-        self.renderer = AVQueuePlayerRenderer()
+        self.renderer = AVQueuePlayerRenderer(mediaClient: mediaClient)
         self.queue = LocalQueue()
         self.nowPlayingManager = NowPlayingManager()
 
@@ -33,6 +33,11 @@ final class LocalPlaybackController {
         configureCommandHandlers()
         updateNowPlaying()
         startUpdateTimer()
+    }
+
+    func updateMediaClient(_ mediaClient: MediaClient?) {
+        self.mediaClient = mediaClient
+        renderer.updateMediaClient(mediaClient)
     }
 
     deinit {
