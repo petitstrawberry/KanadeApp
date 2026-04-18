@@ -6,7 +6,6 @@ struct DiscoveredServer: Identifiable, Hashable {
     let name: String
     let host: String
     let port: Int
-    let httpPort: Int?
     let persistent: Bool
 
     func hash(into hasher: inout Hasher) {
@@ -57,15 +56,11 @@ final class ServerDiscovery {
                     guard case .service(let name, _, _, _) = result.endpoint else { return nil }
 
                     var port = 8080
-                    var httpPort: Int?
                     var advertisedHost: String?
 
                     if case .bonjour(let record) = result.metadata {
                         if let portStr = record["ws_port"], let p = Int(portStr) {
                             port = p
-                        }
-                        if let portStr = record["http_port"], let p = Int(portStr) {
-                            httpPort = p
                         }
                         advertisedHost = record["host"]
                     }
@@ -82,7 +77,6 @@ final class ServerDiscovery {
                         name: name,
                         host: resolvedHost,
                         port: port,
-                        httpPort: httpPort,
                         persistent: advertisedHost != nil
                     )
                 }

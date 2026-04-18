@@ -34,8 +34,7 @@ final class AppState {
     }
 
     @ObservationIgnored private static let serverAddressKey = "kanade.serverAddress"
-    @ObservationIgnored private static let wsPortKey = "kanade.wsPort"
-    @ObservationIgnored private static let httpPortKey = "kanade.httpPort"
+    @ObservationIgnored private static let serverPortKey = "kanade.serverPort"
     @ObservationIgnored private static let autoConnectKey = "kanade.autoConnect"
     @ObservationIgnored private static let controlTargetKey = "kanade.controlTarget"
     @ObservationIgnored private static let lastRemoteNodeIdKey = "kanade.lastRemoteNodeId"
@@ -93,11 +92,7 @@ final class AppState {
         didSet { persistConnectionSettings() }
     }
 
-    var wsPort: Int {
-        didSet { persistConnectionSettings() }
-    }
-
-    var httpPort: Int {
+    var serverPort: Int {
         didSet { persistConnectionSettings() }
     }
 
@@ -249,8 +244,7 @@ final class AppState {
 
     @MainActor init() {
         serverAddress = defaults.string(forKey: Self.serverAddressKey) ?? "127.0.0.1"
-        wsPort = defaults.object(forKey: Self.wsPortKey) as? Int ?? 8080
-        httpPort = defaults.object(forKey: Self.httpPortKey) as? Int ?? 8081
+        serverPort = defaults.object(forKey: Self.serverPortKey) as? Int ?? 8080
         autoConnectOnLaunch = defaults.object(forKey: Self.autoConnectKey) as? Bool ?? true
         useTLS = defaults.object(forKey: Self.useTLSKey) as? Bool ?? false
         allowSelfSignedServer = defaults.object(forKey: Self.allowSelfSignedKey) as? Bool ?? false
@@ -259,6 +253,17 @@ final class AppState {
         controlTarget = defaults.string(forKey: Self.controlTargetKey).flatMap(ControlTarget.init(rawValue:)) ?? .remote
         lastRemoteNodeId = defaults.string(forKey: Self.lastRemoteNodeIdKey)
         controlledNodeId = nil
+
+        if defaults.object(forKey: "kanade.wsPort") != nil {
+            if defaults.object(forKey: Self.serverPortKey) == nil,
+               let oldPort = defaults.object(forKey: "kanade.wsPort") as? Int {
+                defaults.set(oldPort, forKey: Self.serverPortKey)
+                serverPort = oldPort
+            }
+            defaults.removeObject(forKey: "kanade.wsPort")
+            defaults.removeObject(forKey: "kanade.httpPort")
+        }
+
         defaults.removeObject(forKey: "kanade.controlledNodeId")
     }
 
@@ -275,8 +280,8 @@ final class AppState {
 
         let scheme = useTLS ? "wss" : "ws"
         let httpScheme = useTLS ? "https" : "http"
-        let wsURL = URL(string: "\(scheme)://\(serverAddress):\(wsPort)")!
-        let httpURL = URL(string: "\(httpScheme)://\(serverAddress):\(httpPort)")!
+        let wsURL = URL(string: "\(scheme)://\(serverAddress):\(serverPort)/ws")!
+        let httpURL = URL(string: "\(httpScheme)://\(serverAddress):\(serverPort)")!
 
         let tlsConfig: TLSConfiguration? = useTLS ? buildTLSConfiguration() : nil
 
@@ -549,8 +554,7 @@ final class AppState {
 
     private func persistConnectionSettings() {
         defaults.set(serverAddress, forKey: Self.serverAddressKey)
-        defaults.set(wsPort, forKey: Self.wsPortKey)
-        defaults.set(httpPort, forKey: Self.httpPortKey)
+        defaults.set(serverPort, forKey: Self.serverPortKey)
         defaults.set(autoConnectOnLaunch, forKey: Self.autoConnectKey)
         defaults.set(useTLS, forKey: Self.useTLSKey)
         defaults.set(allowSelfSignedServer, forKey: Self.allowSelfSignedKey)

@@ -32,10 +32,7 @@ struct SettingsView: View {
                         ForEach(discovery.servers) { server in
                             Button {
                                 appState.serverAddress = server.host
-                                appState.wsPort = server.port
-                                if let httpPort = server.httpPort {
-                                    appState.httpPort = httpPort
-                                }
+                                appState.serverPort = server.port
                             } label: {
                                 HStack {
                                     VStack(alignment: .leading, spacing: 2) {
@@ -82,14 +79,8 @@ struct SettingsView: View {
                         .autocorrectionDisabled()
                 }
 
-                LabeledContent("WebSocket Port") {
-                    TextField("8080", value: $appState.wsPort, format: .number.grouping(.never))
-                        .multilineTextAlignment(.trailing)
-                        .keyboardType(.numberPad)
-                }
-
-                LabeledContent("HTTP Port") {
-                    TextField("8081", value: $appState.httpPort, format: .number.grouping(.never))
+                LabeledContent("Port") {
+                    TextField("8080", value: $appState.serverPort, format: .number.grouping(.never))
                         .multilineTextAlignment(.trailing)
                         .keyboardType(.numberPad)
                 }
@@ -97,10 +88,7 @@ struct SettingsView: View {
                 TextField("Server Address", text: $appState.serverAddress)
                     .multilineTextAlignment(.trailing)
 
-                TextField("WebSocket Port", value: $appState.wsPort, format: .number.grouping(.never))
-                    .multilineTextAlignment(.trailing)
-
-                TextField("HTTP Port", value: $appState.httpPort, format: .number.grouping(.never))
+                TextField("Port", value: $appState.serverPort, format: .number.grouping(.never))
                     .multilineTextAlignment(.trailing)
                 #endif
 
