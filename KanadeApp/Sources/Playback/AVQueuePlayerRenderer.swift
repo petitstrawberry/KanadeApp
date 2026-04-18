@@ -372,7 +372,7 @@ final class AVQueuePlayerRenderer: AudioRenderer {
         asset.resourceLoader.setDelegate(loader, queue: loader.delegateQueue)
 
         let item = AVPlayerItem(asset: asset)
-        item.preferredForwardBufferDuration = 3
+        item.preferredForwardBufferDuration = 1
 
         let itemID = ObjectIdentifier(item)
         itemURLMap[itemID] = sourceURL
@@ -588,7 +588,7 @@ private final class TrackResourceLoader: NSObject, AVAssetResourceLoaderDelegate
                 continue
             }
 
-            let fetchEnd = min(contentInfo.contentLength, max(offset + 1, offset + Self.fetchChunkLength))
+            let fetchEnd = min(requestEnd, max(offset + 1, offset + Self.fetchChunkLength))
             guard fetchEnd > offset else { break }
 
             try await cache.fetch(range: offset..<fetchEnd)

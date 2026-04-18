@@ -51,6 +51,7 @@ final class AppState {
     @ObservationIgnored private let defaults = UserDefaults.standard
     @ObservationIgnored private var didAttemptStartupConnect = false
     @ObservationIgnored private var isResolvingControlledNodeId = false
+    private var lastPrefetchQueueKey: String?
 
     var showRemoteUnavailablePrompt = false
     var serverDiscovery = ServerDiscovery()
@@ -775,6 +776,26 @@ extension AppState: KanadeClientDelegate {
             }
 
             self.refreshEffectiveFallbacks(from: state)
+            self.prefetchSignedURLs(for: state)
+        }
+    }
+
+    private func prefetchSignedURLs(for state: PlaybackState) {
+        guard controlTarget == .local, let signer = mediaClient?.mediaAuthSignerReference() else { return }
+        let tracks = state.queue
+        guard !tracks.isEmpty else { return }
+        let key = tracks.map(\.id).joined(separator: ",")
+        guard key != lastPrefetchQueueKey else { return }
+        lastPrefetchQueueKey = key
+
+        let currentIndex = state.currentIndex ?? 0
+        let lower = max(0, currentIndex - 1)
+        let upper = min(tracks.count - 1, currentIndex + 2)
+        guard lower <= upper else { return }
+        let paths = tracks[lower...upper].map { "/media/tracks/\($0.id)" }
+
+        Task {
+            await signer.prefetch(paths: paths)
         }
     }
 
