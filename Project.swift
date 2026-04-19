@@ -5,7 +5,6 @@ let project = Project(
     organizationName: "petitstrawberry",
     packages: [
         .package(path: "KanadeKit"),
-        .package(url: "https://github.com/sbooth/SFBAudioEngine", from: "0.12.1"),
     ],
     targets: [
         Target(
@@ -37,13 +36,11 @@ let project = Project(
             resources: ["KanadeApp/Resources/**"],
             dependencies: [
                 .package(product: "KanadeKit"),
-                .package(product: "SFBAudioEngine"),
             ],
             settings: .settings(
                 base: [
                     "INFOPLIST_KEY_CFBundle_DISPLAY_NAME": "Kanade",
                     "PRODUCT_DISPLAY_NAME": "Kanade",
-                    "SWIFT_OBJC_BRIDGING_HEADER": "KanadeApp/Sources/KanadeApp-Bridging-Header.h",
                 ]
             )
         ),
@@ -70,13 +67,11 @@ let project = Project(
             entitlements: "KanadeApp/Config/KanadeAppMac.entitlements",
             dependencies: [
                 .package(product: "KanadeKit"),
-                .package(product: "SFBAudioEngine"),
             ],
             settings: .settings(
                 base: [
                     "INFOPLIST_KEY_CFBundleDisplayName": "Kanade",
                     "PRODUCT_DISPLAY_NAME": "Kanade",
-                    "SWIFT_OBJC_BRIDGING_HEADER": "KanadeApp/Sources/KanadeApp-Bridging-Header.h",
                 ]
             )
         ),

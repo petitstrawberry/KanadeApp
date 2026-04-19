@@ -152,13 +152,17 @@ final class AppState {
         effectiveCurrentTrack != nil && (isConnected || localPlayback != nil)
     }
 
-    private var localPlaybackSnapshot: LocalPlaybackSnapshot? {
-        localPlayback?.snapshot
+    private var localPlaybackSessionUpdate: LocalPlaybackSessionUpdate? {
+        localPlayback?.sessionUpdate
+    }
+
+    private var localPlaybackTransport: LocalPlaybackTransportSnapshot? {
+        localPlayback?.transportSnapshot
     }
 
     var effectiveQueue: [Track] {
         if isControllingLocalNode {
-            return localPlaybackSnapshot?.queue ?? []
+            return localPlayback?.queuedTracks ?? []
         }
         if let node = controlledRemoteNode, let queue = node.queue {
             return queue
@@ -172,7 +176,7 @@ final class AppState {
 
     var effectiveCurrentIndex: Int? {
         if isControllingLocalNode {
-            return localPlaybackSnapshot?.currentIndex
+            return localPlayback?.currentIndex
         }
         if let node = controlledRemoteNode, let currentIndex = node.currentIndex {
             return currentIndex
@@ -182,7 +186,7 @@ final class AppState {
 
     var effectiveCurrentTrack: Track? {
         if isControllingLocalNode {
-            return localPlaybackSnapshot?.currentTrack
+            return localPlayback?.currentTrack
         }
         if let effectiveCurrentIndex,
            effectiveQueue.indices.contains(effectiveCurrentIndex) {
@@ -192,12 +196,12 @@ final class AppState {
     }
 
     var effectiveTransportState: EffectiveTransportState? {
-        if isControllingLocalNode, let snapshot = localPlaybackSnapshot {
+        if isControllingLocalNode, let transport = localPlaybackTransport {
             return EffectiveTransportState(
-                positionSecs: snapshot.positionSecs,
-                status: snapshot.status,
-                volume: snapshot.volume,
-                isPlayingLike: snapshot.isPlayingLike
+                positionSecs: transport.positionSecs,
+                status: transport.status,
+                volume: transport.volume,
+                isPlayingLike: transport.isPlayingLike
             )
         }
         guard let node = controlledRemoteNode else { return nil }
@@ -211,7 +215,7 @@ final class AppState {
 
     var effectiveRepeatMode: RepeatMode {
         if isControllingLocalNode {
-            return localPlaybackSnapshot?.repeatMode ?? .off
+            return localPlayback?.repeatMode ?? .off
         }
         if let node = controlledRemoteNode, let repeatMode = node.repeatMode {
             return repeatMode
@@ -221,7 +225,7 @@ final class AppState {
 
     var effectiveShuffleEnabled: Bool {
         if isControllingLocalNode {
-            return localPlaybackSnapshot?.shuffleEnabled ?? false
+            return localPlayback?.shuffleEnabled ?? false
         }
         if let node = controlledRemoteNode, let shuffle = node.shuffle {
             return shuffle
@@ -231,7 +235,7 @@ final class AppState {
 
     var effectiveDurationSecs: Double {
         if isControllingLocalNode {
-            return localPlaybackSnapshot?.durationSecs ?? 0
+            return localPlaybackTransport?.durationSecs ?? 0
         }
         return effectiveCurrentTrack?.durationSecs ?? 0
     }
@@ -476,10 +480,10 @@ final class AppState {
     func startLocalPlayback() {
         if localPlayback == nil {
             let localPlayback = LocalPlaybackController(mediaClient: mediaClient)
-            localPlayback.onSnapshotChanged = { [weak self] snapshot in
+            localPlayback.onSnapshotChanged = { [weak self] (_: LocalPlaybackSnapshot) in
                 guard let self else { return }
-                self.sendLocalSessionUpdate(snapshot: snapshot)
-                self.saveLocalPlaybackState(snapshot: snapshot)
+                self.sendLocalSessionUpdate()
+                self.saveLocalPlaybackState()
             }
             self.localPlayback = localPlayback
         }
@@ -504,7 +508,7 @@ final class AppState {
     func switchToLocal(tracks: [Track], index: Int, positionSecs: Double?) {
         let wasPlaying = effectiveTransportState?.isPlayingLike == true
         startLocalPlayback()
-        localPlayback?.importFromServer(tracks: tracks, index: index, positionSecs: positionSecs)
+        localPlayback?.importPlaybackState(tracks: tracks, index: index, positionSecs: positionSecs)
         controlTarget = .local
         if wasPlaying {
             localPlayback?.play()
@@ -527,19 +531,19 @@ final class AppState {
     }
 
     func sendLocalSessionUpdate() {
-        guard let snapshot = localPlaybackSnapshot else { return }
-        sendLocalSessionUpdate(snapshot: snapshot)
+        guard let update = localPlaybackSessionUpdate else { return }
+        sendLocalSessionUpdate(update: update)
     }
 
-    func sendLocalSessionUpdate(snapshot: LocalPlaybackSnapshot) {
+    func sendLocalSessionUpdate(update: LocalPlaybackSessionUpdate) {
         sendLocalSessionUpdate(
-            queue: snapshot.queue,
-            currentIndex: snapshot.currentIndex,
-            positionSecs: snapshot.positionSecs,
-            status: snapshot.status,
-            volume: snapshot.volume,
-            repeatMode: snapshot.repeatMode,
-            shuffle: snapshot.shuffleEnabled
+            queue: update.queue,
+            currentIndex: update.currentIndex,
+            positionSecs: update.transport.positionSecs,
+            status: update.transport.status,
+            volume: update.transport.volume,
+            repeatMode: update.repeatMode,
+            shuffle: update.shuffleEnabled
         )
     }
 
@@ -582,21 +586,21 @@ final class AppState {
     }
 
     func saveLocalPlaybackState() {
-        guard let snapshot = localPlaybackSnapshot else { return }
-        saveLocalPlaybackState(snapshot: snapshot)
+        guard let handoffState = localPlayback?.exportPlaybackState() else { return }
+        saveLocalPlaybackState(handoffState: handoffState)
     }
 
-    func saveLocalPlaybackState(snapshot: LocalPlaybackSnapshot) {
-        let tracks = snapshot.queue
+    func saveLocalPlaybackState(handoffState: LocalPlaybackHandoffState) {
+        let tracks = handoffState.tracks
         guard !tracks.isEmpty else { return }
 
         if let encoded = try? JSONEncoder().encode(tracks) {
             defaults.set(encoded, forKey: Self.localQueueKey)
         }
-        defaults.set(snapshot.currentIndex, forKey: Self.localIndexKey)
-        defaults.set(snapshot.positionSecs, forKey: Self.localPositionKey)
-        defaults.set(snapshot.repeatMode.rawValue, forKey: Self.localRepeatKey)
-        defaults.set(snapshot.shuffleEnabled, forKey: Self.localShuffleKey)
+        defaults.set(handoffState.currentIndex, forKey: Self.localIndexKey)
+        defaults.set(handoffState.positionSecs, forKey: Self.localPositionKey)
+        defaults.set(handoffState.repeatMode.rawValue, forKey: Self.localRepeatKey)
+        defaults.set(handoffState.shuffleEnabled, forKey: Self.localShuffleKey)
     }
 
     func restoreLocalPlaybackIfNeeded() {
@@ -612,7 +616,7 @@ final class AppState {
 
         let index = defaults.object(forKey: Self.localIndexKey) as? Int
         let position = defaults.double(forKey: Self.localPositionKey)
-        localPlayback?.importFromServer(
+        localPlayback?.importPlaybackState(
             tracks: tracks,
             index: index ?? 0,
             positionSecs: position > 0 ? position : nil

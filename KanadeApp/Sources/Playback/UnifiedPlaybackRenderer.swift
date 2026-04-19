@@ -6,7 +6,7 @@ import KanadeKit
 
 @MainActor
 @Observable
-final class AVQueuePlayerRenderer: AudioRenderer {
+final class UnifiedPlaybackRenderer {
     var state = RendererState()
 
     @ObservationIgnored var onStateChanged: ((RendererState) -> Void)?
@@ -853,7 +853,7 @@ private actor ProgressiveTrackByteCache {
 
             let nextOffset = max(currentOffset + 1, contiguousCachedEnd(startingAt: currentOffset))
             guard nextOffset > currentOffset else {
-                throw NSError(domain: "AVQueuePlayerRenderer.ProgressiveTrackByteCache", code: -1)
+                throw NSError(domain: "UnifiedPlaybackRenderer.ProgressiveTrackByteCache", code: -1)
             }
             currentOffset = nextOffset
         }
@@ -956,7 +956,7 @@ private actor ProgressiveTrackByteCache {
             ?? Int64(dataCount)
 
         guard contentLength > 0 else {
-            throw NSError(domain: "AVQueuePlayerRenderer.TrackContentInfo", code: -1)
+                throw NSError(domain: "UnifiedPlaybackRenderer.TrackContentInfo", code: -1)
         }
 
         let acceptsRanges = response.value(forHTTPHeaderField: "Accept-Ranges")?.localizedCaseInsensitiveContains("bytes") == true
