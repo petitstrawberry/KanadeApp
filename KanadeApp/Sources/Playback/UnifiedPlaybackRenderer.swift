@@ -16,7 +16,7 @@ final class UnifiedPlaybackRenderer {
     init() {
         let transport = AudioTransportEngine()
         self.transport = transport
-        self.decodingBackend = AVAudioFileDecodingBackend(outputFormat: transport.outputFormat)
+        self.decodingBackend = RoutedAudioDecodingBackend(outputFormat: transport.outputFormat)
 
         transport.onStateChanged = { [weak self] rendererState in
             guard let self else { return }

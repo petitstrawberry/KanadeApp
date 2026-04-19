@@ -8,6 +8,12 @@ final class AudioTransportEngine {
     private static let bufferFrameCapacity: AVAudioFrameCount = 16_384
     private static let maxScheduledBuffers = 4
 
+#if DEBUG
+    private func transportLog(_ message: @autoclosure () -> String) {
+        print("[AudioTransport] \(message())")
+    }
+#endif
+
     private let engine = AVAudioEngine()
     private let playerNode = AVAudioPlayerNode()
 
@@ -89,6 +95,9 @@ final class AudioTransportEngine {
 
         if autoplay, scheduledBufferCount > 0 {
             playerNode.play()
+            #if DEBUG
+            transportLog("replaceCurrentSession autoplay play scheduled=\(scheduledBufferCount)")
+            #endif
         }
 
         refreshState(forceStatus: autoplay ? (scheduledBufferCount > 0 ? .playing : .loading) : .paused)
@@ -106,6 +115,9 @@ final class AudioTransportEngine {
 
         if scheduledBufferCount > 0 {
             playerNode.play()
+            #if DEBUG
+            transportLog("play scheduled=\(scheduledBufferCount)")
+            #endif
         }
 
         refreshState(forceStatus: scheduledBufferCount > 0 ? .playing : .loading)
@@ -200,17 +212,26 @@ final class AudioTransportEngine {
             do {
                 buffer = try decoderSession.decodeNextBuffer(frameCapacity: Self.bufferFrameCapacity)
             } catch {
+                #if DEBUG
+                transportLog("decode error \(error.localizedDescription)")
+                #endif
                 stop()
                 return
             }
 
             guard let buffer else {
+                #if DEBUG
+                transportLog("scheduleBuffersIfNeeded got nil buffer")
+                #endif
                 reachedEndOfStream = true
                 finishTrackIfNeeded()
                 return
             }
 
             scheduledBufferCount += 1
+            #if DEBUG
+            transportLog("schedule buffer frames=\(buffer.frameLength) format=\(buffer.format.commonFormat.rawValue) interleaved=\(buffer.format.isInterleaved) scheduled=\(scheduledBufferCount)")
+            #endif
             let generation = completionGeneration
             playerNode.scheduleBuffer(buffer, completionCallbackType: .dataPlayedBack) { [weak self] _ in
                 Task { @MainActor [weak self] in

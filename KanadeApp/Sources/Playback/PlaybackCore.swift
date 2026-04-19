@@ -326,6 +326,9 @@ final class PlaybackCore {
                 self.emitSnapshotChange()
             } catch {
                 guard self.currentTrack?.id == track.id else { return }
+                #if DEBUG
+                print("[PlaybackCore] loadCurrentTrack failed track=\(track.id) error=\(error)")
+                #endif
                 self.stop()
             }
         }
