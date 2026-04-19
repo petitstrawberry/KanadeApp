@@ -4,6 +4,18 @@ import Observation
 import SFBAudioEngine
 import KanadeKit
 
+#if DEBUG
+private let sfbPlaybackLogDateFormatter: ISO8601DateFormatter = {
+    let formatter = ISO8601DateFormatter()
+    formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    return formatter
+}()
+
+private func sfbPlaybackDebugLog(_ message: @autoclosure () -> String) {
+    print("[SFBPlaybackRenderer][\(sfbPlaybackLogDateFormatter.string(from: Date()))] \(message())")
+}
+#endif
+
 @MainActor
 @Observable
 final class SFBPlaybackRenderer: NSObject, AudioRenderer {
@@ -145,12 +157,14 @@ final class SFBPlaybackRenderer: NSObject, AudioRenderer {
         }
 
         refreshState()
+        debugLogAction("play()")
     }
 
     func pause() {
         shouldAutoplay = false
         _ = player.pause()
         refreshState(forceStatus: .paused)
+        debugLogAction("pause()")
     }
 
     func stop() {
@@ -183,6 +197,8 @@ final class SFBPlaybackRenderer: NSObject, AudioRenderer {
             pendingSeekStartedAt = nil
             refreshState()
         }
+
+        debugLogAction("seek(to: \(positionSecs))")
     }
 
     func setVolume(_ volume: Int) {
@@ -301,6 +317,14 @@ final class SFBPlaybackRenderer: NSObject, AudioRenderer {
                 volume: state.volume
             )
         )
+
+        debugLogRefreshState(
+            forceStatus: forceStatus,
+            actualPosition: actualPosition,
+            resolvedPosition: positionSecs,
+            durationSecs: durationSecs,
+            resolvedStatus: status
+        )
     }
 
     private func applyState(_ newState: RendererState) {
@@ -312,17 +336,45 @@ final class SFBPlaybackRenderer: NSObject, AudioRenderer {
         guard framePosition > 0, sampleRate > 0 else { return 0 }
         return Double(framePosition) / sampleRate
     }
+
+    private func debugLogAction(_ action: String) {
+#if DEBUG
+        sfbPlaybackDebugLog(
+            "action=\(action) playerState=\(String(describing: player.playbackState)) status=\(state.status.rawValue) shouldAutoplay=\(shouldAutoplay) pendingSeekPosition=\(String(describing: pendingSeekPosition)) currentDecoder=\(currentDecoder != nil)"
+        )
+#endif
+    }
+
+    private func debugLogRefreshState(
+        forceStatus: PlaybackStatus?,
+        actualPosition: Double,
+        resolvedPosition: Double,
+        durationSecs: Double,
+        resolvedStatus: PlaybackStatus
+    ) {
+#if DEBUG
+        sfbPlaybackDebugLog(
+            "refreshState forceStatus=\(forceStatus?.rawValue ?? "nil") playerState=\(String(describing: player.playbackState)) resolvedStatus=\(resolvedStatus.rawValue) actualPosition=\(actualPosition) resolvedPosition=\(resolvedPosition) duration=\(durationSecs) isLoadingTrack=\(isLoadingTrack) pendingSeekPosition=\(String(describing: pendingSeekPosition)) shouldAutoplay=\(shouldAutoplay)"
+        )
+#endif
+    }
 }
 
 extension SFBPlaybackRenderer: AudioPlayer.Delegate {
     nonisolated func audioPlayer(_ audioPlayer: AudioPlayer, playbackStateChanged playbackState: AudioPlayer.PlaybackState) {
         Task { @MainActor [weak self] in
+            #if DEBUG
+            sfbPlaybackDebugLog("delegate=playbackStateChanged playerState=\(String(describing: playbackState))")
+            #endif
             self?.refreshState()
         }
     }
 
     nonisolated func audioPlayer(_ audioPlayer: AudioPlayer, nowPlayingChanged nowPlaying: PCMDecoding?) {
         Task { @MainActor [weak self] in
+            #if DEBUG
+            sfbPlaybackDebugLog("delegate=nowPlayingChanged hasDecoder=\(nowPlaying != nil)")
+            #endif
             self?.refreshState()
         }
     }
@@ -330,6 +382,9 @@ extension SFBPlaybackRenderer: AudioPlayer.Delegate {
     nonisolated func audioPlayerEndOfAudio(_ audioPlayer: AudioPlayer) {
         Task { @MainActor [weak self] in
             guard let self else { return }
+            #if DEBUG
+            sfbPlaybackDebugLog("delegate=endOfAudio")
+            #endif
             self.refreshState(forceStatus: .stopped)
             self.onTrackFinished?()
         }

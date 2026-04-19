@@ -2,6 +2,18 @@ import Foundation
 import Observation
 import KanadeKit
 
+#if DEBUG
+private let localPlaybackLogDateFormatter: ISO8601DateFormatter = {
+    let formatter = ISO8601DateFormatter()
+    formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    return formatter
+}()
+
+private func localPlaybackDebugLog(_ message: @autoclosure () -> String) {
+    print("[LocalPlaybackController][\(localPlaybackLogDateFormatter.string(from: Date()))] \(message())")
+}
+#endif
+
 struct LocalPlaybackSnapshot: Sendable {
     let queue: [Track]
     let currentIndex: Int?
@@ -70,7 +82,7 @@ final class LocalPlaybackController {
         nowPlayingManager.configureAudioSession()
         bindRenderers()
         configureCommandHandlers()
-        updateNowPlaying()
+        publishCommittedNowPlaying()
         startUpdateTimer()
     }
 
@@ -94,6 +106,7 @@ final class LocalPlaybackController {
     func play() {
         startUpdateTimer()
         playbackIntentIsPlaying = true
+        nowPlayingManager.setAudioSessionActive(true)
         if currentTrack == nil, !queue.tracks.isEmpty {
             queue.jumpToIndex(queue.currentIndex ?? 0)
             loadCurrentTrack(autoplay: true)
@@ -106,17 +119,17 @@ final class LocalPlaybackController {
         }
 
         renderer.play()
-        if !currentTrackIsFLAC {
-            updateNowPlaying()
-        }
+        emitStateUpdate()
+        publishTransportNowPlaying()
+        debugLogAction("play()")
     }
 
     func pause() {
         playbackIntentIsPlaying = false
         renderer.pause()
-        if !currentTrackIsFLAC {
-            updateNowPlaying()
-        }
+        emitStateUpdate()
+        publishTransportNowPlaying()
+        debugLogAction("pause()")
     }
 
     func stop() {
@@ -133,12 +146,14 @@ final class LocalPlaybackController {
 
     func seek(to positionSecs: Double) {
         renderer.seek(to: positionSecs)
-        updateNowPlaying()
+        emitStateUpdate()
+        publishTransportNowPlaying()
+        debugLogAction("seek(to: \(positionSecs))")
     }
 
     func setVolume(_ volume: Int) {
         renderer.setVolume(volume)
-        updateNowPlaying()
+        publishCommittedNowPlaying()
     }
 
     func next() {
@@ -164,13 +179,13 @@ final class LocalPlaybackController {
 
     func setRepeat(_ mode: RepeatMode) {
         queue.setRepeat(mode)
-        updateNowPlaying()
+        publishCommittedNowPlaying()
     }
 
     func setShuffle(_ enabled: Bool) {
         queue.setShuffle(enabled)
         preloadNextTrack()
-        updateNowPlaying()
+        publishCommittedNowPlaying()
     }
 
     func addToQueue(_ track: Track) {
@@ -180,7 +195,7 @@ final class LocalPlaybackController {
             loadCurrentTrack(autoplay: false)
         } else {
             preloadNextTrack()
-            updateNowPlaying()
+            publishCommittedNowPlaying()
         }
     }
 
@@ -191,7 +206,7 @@ final class LocalPlaybackController {
             loadCurrentTrack(autoplay: false)
         } else {
             preloadNextTrack()
-            updateNowPlaying()
+            publishCommittedNowPlaying()
         }
     }
 
@@ -210,7 +225,7 @@ final class LocalPlaybackController {
             loadCurrentTrack(autoplay: shouldAutoplay)
         } else {
             preloadNextTrack()
-            updateNowPlaying()
+            publishCommittedNowPlaying()
         }
     }
 
@@ -227,7 +242,7 @@ final class LocalPlaybackController {
     func moveInQueue(from sourceIndex: Int, to destinationIndex: Int) {
         queue.move(from: sourceIndex, to: destinationIndex)
         preloadNextTrack()
-        updateNowPlaying()
+        publishCommittedNowPlaying()
     }
 
     func importFromServer(tracks: [Track], index: Int?, positionSecs: Double?) {
@@ -241,7 +256,7 @@ final class LocalPlaybackController {
 
         pendingSeekAfterLoad = positionSecs
         loadCurrentTrack(autoplay: false)
-        updateNowPlaying()
+        publishCommittedNowPlaying()
     }
 
     func exportForHandoff() -> (tracks: [Track], index: Int?, positionSecs: Double) {
@@ -259,6 +274,11 @@ final class LocalPlaybackController {
             guard let self else { return }
             guard self.currentTrackIsFLAC == isFLACRenderer else { return }
 
+            self.debugLogRendererStateChange(
+                source: isFLACRenderer ? "SFB" : "AVQueue",
+                rendererState: renderer.state
+            )
+
             if let pendingSeekAfterLoad = self.pendingSeekAfterLoad,
                renderer.state.status != .loading,
                renderer.state.durationSecs > 0 {
@@ -266,7 +286,6 @@ final class LocalPlaybackController {
                 renderer.seek(to: pendingSeekAfterLoad)
             }
 
-            self.updateNowPlaying()
             self.emitStateUpdate()
         }
 
@@ -278,7 +297,8 @@ final class LocalPlaybackController {
                 return
             }
             self.preloadNextTrack()
-            self.updateNowPlaying()
+            self.emitStateUpdate()
+            self.publishCommittedNowPlaying()
         }
 
         renderer.onTrackFinished = { [weak self] in
@@ -311,6 +331,9 @@ final class LocalPlaybackController {
         }
 
         playbackIntentIsPlaying = autoplay
+        if autoplay {
+            nowPlayingManager.setAudioSessionActive(true)
+        }
         startUpdateTimer()
         currentTrackLoadTask?.cancel()
         nextTrackPreloadTask?.cancel()
@@ -339,7 +362,8 @@ final class LocalPlaybackController {
                 }
 
                 self.preloadNextTrack()
-                self.updateNowPlaying()
+                self.emitStateUpdate()
+                self.publishCommittedNowPlaying()
             } catch {
                 guard self.currentTrack?.id == track.id else { return }
                 self.stop()
@@ -379,7 +403,15 @@ final class LocalPlaybackController {
         track.format?.localizedCaseInsensitiveCompare("flac") == .orderedSame
     }
 
-    private func updateNowPlaying() {
+    private func publishCommittedNowPlaying() {
+        publishNowPlaying(fetchArtwork: true)
+    }
+
+    private func publishTransportNowPlaying() {
+        publishNowPlaying(fetchArtwork: false)
+    }
+
+    private func publishNowPlaying(fetchArtwork: Bool) {
         let snapshot = snapshot
         let playbackRate = snapshot.status == .playing ? 1.0 : 0.0
 
@@ -402,7 +434,16 @@ final class LocalPlaybackController {
             isPlayingLike: snapshot.isPlayingLike
         )
 
-        fetchArtworkIfNeeded()
+        nowPlayingManager.handlePlaybackStateTransition(
+            status: snapshot.status,
+            isPlayingLike: snapshot.isPlayingLike
+        )
+
+        debugLogNowPlayingPublish(snapshot: snapshot, playbackRate: playbackRate, fetchArtwork: fetchArtwork)
+
+        if fetchArtwork {
+            fetchArtworkIfNeeded()
+        }
     }
 
     private func fetchArtworkIfNeeded() {
@@ -418,16 +459,7 @@ final class LocalPlaybackController {
             else { return }
             cachedArtworkAlbumId = albumIdCopy
             cachedArtworkData = data
-            let playbackRate = renderer.state.status == .playing ? 1.0 : 0.0
-            nowPlayingManager.updateNowPlaying(
-                track: self.snapshot.currentTrack,
-                artworkData: data,
-                duration: self.snapshot.durationSecs,
-                position: self.snapshot.positionSecs,
-                playbackRate: playbackRate,
-                status: self.snapshot.status,
-                isPlayingLike: self.snapshot.isPlayingLike
-            )
+            self.publishCommittedNowPlaying()
         }
     }
 
@@ -439,11 +471,50 @@ final class LocalPlaybackController {
                 guard let self else { return }
                 guard self.isPlaying || self.renderer.state.status != .stopped else { continue }
                 self.emitStateUpdate()
+                self.publishTransportNowPlaying()
             }
         }
     }
 
     private func emitStateUpdate() {
         onSnapshotChanged?(snapshot)
+        debugLogSnapshotEmission(snapshot)
+    }
+
+    private func debugLogAction(_ action: String) {
+#if DEBUG
+        let snapshot = snapshot
+        let trackID = snapshot.currentTrack?.id ?? "nil"
+        localPlaybackDebugLog(
+            "action=\(action) flac=\(currentTrackIsFLAC) rendererStatus=\(renderer.state.status.rawValue) snapshotStatus=\(snapshot.status.rawValue) isPlayingLike=\(snapshot.isPlayingLike) position=\(snapshot.positionSecs) duration=\(snapshot.durationSecs) track=\(trackID)"
+        )
+#endif
+    }
+
+    private func debugLogRendererStateChange(source: String, rendererState: RendererState) {
+#if DEBUG
+        let trackID = currentTrack?.id ?? "nil"
+        localPlaybackDebugLog(
+            "renderer=\(source) stateChanged flac=\(currentTrackIsFLAC) rendererStatus=\(rendererState.status.rawValue) rendererPosition=\(rendererState.positionSecs) rendererDuration=\(rendererState.durationSecs) playbackIntentIsPlaying=\(playbackIntentIsPlaying) pendingSeekAfterLoad=\(String(describing: pendingSeekAfterLoad)) track=\(trackID)"
+        )
+#endif
+    }
+
+    private func debugLogNowPlayingPublish(snapshot: LocalPlaybackSnapshot, playbackRate: Double, fetchArtwork: Bool) {
+#if DEBUG
+        let trackID = snapshot.currentTrack?.id ?? "nil"
+        localPlaybackDebugLog(
+            "publishNowPlaying fetchArtwork=\(fetchArtwork) flac=\(currentTrackIsFLAC) status=\(snapshot.status.rawValue) isPlayingLike=\(snapshot.isPlayingLike) position=\(snapshot.positionSecs) duration=\(snapshot.durationSecs) playbackRate=\(playbackRate) track=\(trackID)"
+        )
+#endif
+    }
+
+    private func debugLogSnapshotEmission(_ snapshot: LocalPlaybackSnapshot) {
+#if DEBUG
+        let trackID = snapshot.currentTrack?.id ?? "nil"
+        localPlaybackDebugLog(
+            "emitStateUpdate flac=\(currentTrackIsFLAC) status=\(snapshot.status.rawValue) isPlayingLike=\(snapshot.isPlayingLike) position=\(snapshot.positionSecs) duration=\(snapshot.durationSecs) track=\(trackID)"
+        )
+#endif
     }
 }

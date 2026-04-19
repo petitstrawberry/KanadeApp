@@ -5,9 +5,22 @@ import KanadeKit
 import MediaPlayer
 #endif
 
+#if DEBUG
+private let nowPlayingLogDateFormatter: ISO8601DateFormatter = {
+    let formatter = ISO8601DateFormatter()
+    formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    return formatter
+}()
+
+private func nowPlayingDebugLog(_ message: @autoclosure () -> String) {
+    print("[NowPlayingManager][\(nowPlayingLogDateFormatter.string(from: Date()))] \(message())")
+}
+#endif
+
 @MainActor
 final class NowPlayingManager {
     private var cachedPlaybackPosition: Double = 0
+    private var isAudioSessionActive = false
 
 #if canImport(MediaPlayer)
     private let infoCenter = MPNowPlayingInfoCenter.default()
@@ -20,11 +33,39 @@ final class NowPlayingManager {
         do {
             let session = AVAudioSession.sharedInstance()
             try session.setCategory(.playback, mode: .default)
-            try session.setActive(true)
         } catch {
             return
         }
 #endif
+    }
+
+    func setAudioSessionActive(_ isActive: Bool) {
+#if os(iOS)
+        guard isAudioSessionActive != isActive else { return }
+
+        do {
+            let session = AVAudioSession.sharedInstance()
+            if isActive {
+                try session.setActive(true)
+            } else {
+                try session.setActive(false, options: [.notifyOthersOnDeactivation])
+            }
+            isAudioSessionActive = isActive
+        } catch {
+            return
+        }
+#endif
+    }
+
+    func handlePlaybackStateTransition(status: PlaybackStatus, isPlayingLike: Bool) {
+        if isPlayingLike {
+            setAudioSessionActive(true)
+            return
+        }
+
+        if status == .stopped {
+            setAudioSessionActive(false)
+        }
     }
 
     func updateNowPlaying(
@@ -37,7 +78,6 @@ final class NowPlayingManager {
         isPlayingLike: Bool
     ) {
         cachedPlaybackPosition = sanitizedPosition(position)
-
 #if canImport(MediaPlayer)
         guard let track else {
             clearNowPlaying()
@@ -59,7 +99,12 @@ final class NowPlayingManager {
         }
 
         infoCenter.nowPlayingInfo = info
-        infoCenter.playbackState = systemPlaybackState(status: status, isPlayingLike: isPlayingLike)
+
+        #if DEBUG
+        nowPlayingDebugLog(
+            "updateNowPlaying status=\(status.rawValue) isPlayingLike=\(isPlayingLike) playbackRate=\(playbackRate) position=\(cachedPlaybackPosition) duration=\(duration) audioSessionActive=\(isAudioSessionActive) track=\(track.id)"
+        )
+        #endif
 #endif
     }
 
@@ -74,11 +119,17 @@ final class NowPlayingManager {
         removeCommandTargets()
 
         register(commandCenter.playCommand) { _ in
+            #if DEBUG
+            nowPlayingDebugLog("remoteCommand=play cachedPlaybackPosition=\(self.cachedPlaybackPosition)")
+            #endif
             onPlay()
             return .success
         }
 
         register(commandCenter.pauseCommand) { _ in
+            #if DEBUG
+            nowPlayingDebugLog("remoteCommand=pause cachedPlaybackPosition=\(self.cachedPlaybackPosition)")
+            #endif
             onPause()
             return .success
         }
@@ -116,6 +167,9 @@ final class NowPlayingManager {
             }
 
             self.cachedPlaybackPosition = self.sanitizedPosition(event.positionTime)
+            #if DEBUG
+            nowPlayingDebugLog("remoteCommand=changePlaybackPosition target=\(self.cachedPlaybackPosition)")
+            #endif
             onSeek(self.cachedPlaybackPosition)
             return .success
         }
@@ -124,30 +178,15 @@ final class NowPlayingManager {
 
     func clearNowPlaying() {
         cachedPlaybackPosition = 0
+        setAudioSessionActive(false)
 
 #if canImport(MediaPlayer)
         infoCenter.nowPlayingInfo = nil
-        infoCenter.playbackState = .stopped
 #endif
     }
 
     private func sanitizedPosition(_ position: Double) -> Double {
         max(position, 0)
-    }
-
-    private func systemPlaybackState(status: PlaybackStatus, isPlayingLike: Bool) -> MPNowPlayingPlaybackState {
-        if isPlayingLike {
-            return .playing
-        }
-
-        switch status {
-        case .stopped:
-            return .stopped
-        case .loading, .paused:
-            return .paused
-        case .playing:
-            return .playing
-        }
     }
 
     deinit {
