@@ -22,7 +22,7 @@ final class SFBPlaybackRenderer: NSObject, AudioRenderer {
 
     @ObservationIgnored private var shouldAutoplay = true
     @ObservationIgnored private var isLoadingTrack = false
-    @ObservationIgnored private var isSeekingInternally = false
+    @ObservationIgnored private var pendingSeekPosition: Double?
     @ObservationIgnored private var activeLoadID = UUID()
 
     override init() {
@@ -56,6 +56,7 @@ final class SFBPlaybackRenderer: NSObject, AudioRenderer {
         loadTask?.cancel()
         player.stop()
         replaceResources(decoder: nil, inputSource: nil)
+
         loadTask = Task { [weak self] in
             guard let self else { return }
 
@@ -78,21 +79,24 @@ final class SFBPlaybackRenderer: NSObject, AudioRenderer {
                     return
                 }
 
+                self.replaceResources(decoder: decoder, inputSource: inputSource)
+
                 do {
                     if autoplay {
-                        try self.player.play(decoder)
+                        try await Task.detached { [player, decoder] in
+                            try player.play(decoder)
+                        }.value
                     } else {
-                        try self.player.enqueue(decoder, immediate: true)
+                        try await Task.detached { [player, decoder] in
+                            try player.enqueue(decoder, immediate: true)
+                        }.value
                     }
+                    self.isLoadingTrack = false
+                    self.refreshState()
                 } catch {
-                    try? decoder.close()
-                    try? inputSource.close()
-                    throw error
+                    self.isLoadingTrack = false
+                    self.refreshState(forceStatus: .stopped)
                 }
-
-                self.replaceResources(decoder: decoder, inputSource: inputSource)
-                self.isLoadingTrack = false
-                self.refreshState(forceStatus: autoplay ? .loading : .paused)
             } catch is CancellationError {
             } catch {
                 if self.activeLoadID == loadID {
@@ -122,10 +126,7 @@ final class SFBPlaybackRenderer: NSObject, AudioRenderer {
         if player.playbackState == .paused || player.isReady {
             _ = player.resume()
         } else if let decoder = currentDecoder {
-            do {
-                try player.play(decoder)
-            } catch {
-            }
+            try? player.play(decoder)
         }
 
         refreshState()
@@ -140,6 +141,7 @@ final class SFBPlaybackRenderer: NSObject, AudioRenderer {
     func stop() {
         shouldAutoplay = false
         isLoadingTrack = false
+        pendingSeekPosition = nil
         activeLoadID = UUID()
         loadTask?.cancel()
         player.stop()
@@ -153,17 +155,14 @@ final class SFBPlaybackRenderer: NSObject, AudioRenderer {
         let sampleRate = decoder.processingFormat.sampleRate
         guard sampleRate > 0 else { return }
 
-        let frame = AVAudioFramePosition(max(positionSecs, 0) * sampleRate)
-        isSeekingInternally = true
-        state.positionSecs = max(positionSecs, 0)
-        onStateChanged?(state)
+        let clamped = max(0, positionSecs)
+        let frame = AVAudioFramePosition(clamped * sampleRate)
 
-        if player.seek(frame: frame) {
-            refreshState()
-        } else {
-            isSeekingInternally = false
-            refreshState()
-        }
+        pendingSeekPosition = clamped
+        applyState(RendererState(status: state.status, positionSecs: clamped, durationSecs: state.durationSecs, volume: state.volume))
+
+        _ = player.seek(frame: frame)
+        pendingSeekPosition = nil
     }
 
     func setVolume(_ volume: Int) {
@@ -230,17 +229,23 @@ final class SFBPlaybackRenderer: NSObject, AudioRenderer {
         currentInputSource = inputSource
 
         if previousDecoder !== decoder {
-            try? previousDecoder?.close()
+            Task.detached { try? previousDecoder?.close() }
         }
         if previousInputSource !== inputSource {
-            try? previousInputSource?.close()
+            Task.detached { try? previousInputSource?.close() }
         }
     }
 
     private func refreshState(forceStatus: PlaybackStatus? = nil) {
         let decoder = player.nowPlaying ?? player.currentDecoder ?? currentDecoder
-        let durationSecs = seconds(fromFramePosition: decoder?.length ?? 0, sampleRate: decoder?.processingFormat.sampleRate ?? 0)
-        let positionSecs = seconds(fromFramePosition: decoder?.position ?? 0, sampleRate: decoder?.processingFormat.sampleRate ?? 0)
+        let sampleRate = decoder?.processingFormat.sampleRate ?? 0
+        let durationSecs = seconds(fromFramePosition: decoder?.length ?? 0, sampleRate: sampleRate)
+        let actualPosition = seconds(fromFramePosition: decoder?.position ?? 0, sampleRate: sampleRate)
+
+        let positionSecs = pendingSeekPosition ?? actualPosition
+        if pendingSeekPosition != nil, actualPosition > 0, abs(actualPosition - pendingSeekPosition!) < 0.5 {
+            pendingSeekPosition = nil
+        }
 
         let status: PlaybackStatus
         if let forceStatus {
@@ -260,21 +265,14 @@ final class SFBPlaybackRenderer: NSObject, AudioRenderer {
             status = .stopped
         }
 
-        if isSeekingInternally {
-            state.status = status
-            state.durationSecs = durationSecs
-            onStateChanged?(state)
-            isSeekingInternally = false
-        } else {
-            applyState(
-                RendererState(
-                    status: status,
-                    positionSecs: positionSecs,
-                    durationSecs: durationSecs,
-                    volume: state.volume
-                )
+        applyState(
+            RendererState(
+                status: status,
+                positionSecs: positionSecs,
+                durationSecs: durationSecs,
+                volume: state.volume
             )
-        }
+        )
     }
 
     private func applyState(_ newState: RendererState) {
@@ -313,6 +311,7 @@ extension SFBPlaybackRenderer: AudioPlayer.Delegate {
         Task { @MainActor [weak self] in
             guard let self else { return }
             self.isLoadingTrack = false
+            self.pendingSeekPosition = nil
             self.player.stop()
             self.replaceResources(decoder: nil, inputSource: nil)
             self.refreshState(forceStatus: .stopped)
@@ -323,6 +322,7 @@ extension SFBPlaybackRenderer: AudioPlayer.Delegate {
         Task { @MainActor [weak self] in
             guard let self else { return }
             self.isLoadingTrack = false
+            self.pendingSeekPosition = nil
             self.player.stop()
             self.replaceResources(decoder: nil, inputSource: nil)
             self.refreshState(forceStatus: .stopped)
