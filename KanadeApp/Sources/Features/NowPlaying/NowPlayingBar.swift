@@ -16,32 +16,40 @@ struct NowPlayingBar: View {
     @State private var volumeValue: Double = 0
     @State private var isAdjustingVolume = false
 
+    private var playbackState: AppState.EffectivePlaybackState {
+        appState.effectivePlaybackState
+    }
+
+    private var transportState: AppState.EffectiveTransportState? {
+        playbackState.transport
+    }
+
     private var currentTrack: Track? {
-        appState.effectiveCurrentTrack
+        playbackState.currentTrack
     }
 
     private var isPlaying: Bool {
-        return appState.effectiveTransportState?.isPlayingLike ?? false
+        transportState?.isPlayingLike ?? false
     }
 
     private var currentPosition: Double {
-        return appState.effectiveTransportState?.positionSecs ?? 0
+        transportState?.positionSecs ?? 0
     }
 
     private var currentVolume: Double {
-        return Double(appState.effectiveTransportState?.volume ?? 0)
+        Double(transportState?.volume ?? 0)
     }
 
     private var sliderDuration: Double {
-        max(appState.effectiveDurationSecs, currentTrack?.durationSecs ?? 0, 1)
+        max(appState.effectiveDurationSecs, playbackState.currentTrack?.durationSecs ?? 0, 1)
     }
 
     private var repeatMode: RepeatMode {
-        appState.effectiveRepeatMode
+        playbackState.repeatMode
     }
 
     private var shuffleEnabled: Bool {
-        appState.effectiveShuffleEnabled
+        playbackState.shuffleEnabled
     }
 
     init(placement: NowPlayingBarPlacement = .iosAccessory) {
@@ -61,16 +69,8 @@ struct NowPlayingBar: View {
         .onChange(of: currentTrack?.id) {
             syncSeekPosition()
         }
-        .onChange(of: currentPosition) {
-            if !isSeeking {
-                syncSeekPosition()
-            }
-        }
-        .onChange(of: currentVolume) {
-            if !isAdjustingVolume {
-                syncVolumeValue()
-            }
-        }
+        .onChange(of: currentPosition, handleCurrentPositionChange)
+        .onChange(of: currentVolume, handleCurrentVolumeChange)
     }
 
     private func barContent(currentTrack: Track) -> some View {
@@ -303,8 +303,11 @@ struct NowPlayingBar: View {
                     in: 0...100,
                     onEditingChanged: { editing in
                         isAdjustingVolume = editing
-                        appState.performSetVolume(Int(volumeValue.rounded()))
+                        if editing {
+                            appState.performSetVolume(Int(volumeValue.rounded()))
+                        }
                         if !editing {
+                            appState.performSetVolume(Int(volumeValue.rounded()))
                             syncVolumeValue()
                         }
                     }
@@ -426,6 +429,18 @@ struct NowPlayingBar: View {
             appState.performPause()
         } else {
             appState.performPlay()
+        }
+    }
+
+    private func handleCurrentPositionChange() {
+        if !isSeeking {
+            syncSeekPosition()
+        }
+    }
+
+    private func handleCurrentVolumeChange() {
+        if !isAdjustingVolume {
+            syncVolumeValue()
         }
     }
 

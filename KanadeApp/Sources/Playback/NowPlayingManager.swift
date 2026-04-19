@@ -7,7 +7,7 @@ import MediaPlayer
 
 @MainActor
 final class NowPlayingManager {
-    private var currentPlaybackPosition: Double = 0
+    private var cachedPlaybackPosition: Double = 0
 
 #if canImport(MediaPlayer)
     private let infoCenter = MPNowPlayingInfoCenter.default()
@@ -32,9 +32,11 @@ final class NowPlayingManager {
         artworkData: Data? = nil,
         duration: Double,
         position: Double,
-        playbackRate: Double
+        playbackRate: Double,
+        status: PlaybackStatus,
+        isPlayingLike: Bool
     ) {
-        currentPlaybackPosition = max(position, 0)
+        cachedPlaybackPosition = sanitizedPosition(position)
 
 #if canImport(MediaPlayer)
         guard let track else {
@@ -46,7 +48,7 @@ final class NowPlayingManager {
             MPMediaItemPropertyTitle: track.title ?? "Unknown Title",
             MPMediaItemPropertyArtist: track.artist ?? "Unknown Artist",
             MPMediaItemPropertyAlbumTitle: track.albumTitle ?? "Unknown Album",
-            MPNowPlayingInfoPropertyElapsedPlaybackTime: currentPlaybackPosition,
+            MPNowPlayingInfoPropertyElapsedPlaybackTime: cachedPlaybackPosition,
             MPMediaItemPropertyPlaybackDuration: max(duration, 0),
             MPNowPlayingInfoPropertyPlaybackRate: playbackRate,
             MPNowPlayingInfoPropertyMediaType: MPNowPlayingInfoMediaType.audio.rawValue,
@@ -57,6 +59,7 @@ final class NowPlayingManager {
         }
 
         infoCenter.nowPlayingInfo = info
+        infoCenter.playbackState = systemPlaybackState(status: status, isPlayingLike: isPlayingLike)
 #endif
     }
 
@@ -92,16 +95,16 @@ final class NowPlayingManager {
 
         register(commandCenter.seekForwardCommand) { [weak self] _ in
             guard let self else { return .commandFailed }
-            let target = self.currentPlaybackPosition + 15
-            self.currentPlaybackPosition = target
+            let target = self.cachedPlaybackPosition + 15
+            self.cachedPlaybackPosition = target
             onSeek(target)
             return .success
         }
 
         register(commandCenter.seekBackwardCommand) { [weak self] _ in
             guard let self else { return .commandFailed }
-            let target = max(self.currentPlaybackPosition - 15, 0)
-            self.currentPlaybackPosition = target
+            let target = max(self.cachedPlaybackPosition - 15, 0)
+            self.cachedPlaybackPosition = target
             onSeek(target)
             return .success
         }
@@ -112,19 +115,39 @@ final class NowPlayingManager {
                 return .commandFailed
             }
 
-            self.currentPlaybackPosition = max(event.positionTime, 0)
-            onSeek(self.currentPlaybackPosition)
+            self.cachedPlaybackPosition = self.sanitizedPosition(event.positionTime)
+            onSeek(self.cachedPlaybackPosition)
             return .success
         }
 #endif
     }
 
     func clearNowPlaying() {
-        currentPlaybackPosition = 0
+        cachedPlaybackPosition = 0
 
 #if canImport(MediaPlayer)
         infoCenter.nowPlayingInfo = nil
+        infoCenter.playbackState = .stopped
 #endif
+    }
+
+    private func sanitizedPosition(_ position: Double) -> Double {
+        max(position, 0)
+    }
+
+    private func systemPlaybackState(status: PlaybackStatus, isPlayingLike: Bool) -> MPNowPlayingPlaybackState {
+        if isPlayingLike {
+            return .playing
+        }
+
+        switch status {
+        case .stopped:
+            return .stopped
+        case .loading, .paused:
+            return .paused
+        case .playing:
+            return .playing
+        }
     }
 
     deinit {

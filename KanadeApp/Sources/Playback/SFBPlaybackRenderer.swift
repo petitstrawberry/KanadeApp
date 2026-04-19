@@ -23,6 +23,8 @@ final class SFBPlaybackRenderer: NSObject, AudioRenderer {
     @ObservationIgnored private var shouldAutoplay = true
     @ObservationIgnored private var isLoadingTrack = false
     @ObservationIgnored private var pendingSeekPosition: Double?
+    @ObservationIgnored private var pendingSeekStartedAt: Date?
+    @ObservationIgnored private let pendingSeekTimeout: TimeInterval = 15
     @ObservationIgnored private var activeLoadID = UUID()
 
     override init() {
@@ -51,6 +53,8 @@ final class SFBPlaybackRenderer: NSObject, AudioRenderer {
     func loadTrack(url: URL, autoplay: Bool) {
         shouldAutoplay = autoplay
         isLoadingTrack = true
+        pendingSeekPosition = nil
+        pendingSeekStartedAt = nil
         activeLoadID = UUID()
 
         loadTask?.cancel()
@@ -95,12 +99,18 @@ final class SFBPlaybackRenderer: NSObject, AudioRenderer {
                     self.refreshState()
                 } catch {
                     self.isLoadingTrack = false
+                    self.pendingSeekPosition = nil
+                    self.pendingSeekStartedAt = nil
+                    self.player.stop()
+                    self.replaceResources(decoder: nil, inputSource: nil)
                     self.refreshState(forceStatus: .stopped)
                 }
             } catch is CancellationError {
             } catch {
                 if self.activeLoadID == loadID {
                     self.isLoadingTrack = false
+                    self.pendingSeekPosition = nil
+                    self.pendingSeekStartedAt = nil
                     self.player.stop()
                     self.replaceResources(decoder: nil, inputSource: nil)
                     self.refreshState(forceStatus: .stopped)
@@ -123,9 +133,14 @@ final class SFBPlaybackRenderer: NSObject, AudioRenderer {
     func play() {
         shouldAutoplay = true
 
-        if player.playbackState == .paused || player.isReady {
+        guard let decoder = currentDecoder else {
+            refreshState()
+            return
+        }
+
+        if player.playbackState == .paused {
             _ = player.resume()
-        } else if let decoder = currentDecoder {
+        } else {
             try? player.play(decoder)
         }
 
@@ -142,6 +157,7 @@ final class SFBPlaybackRenderer: NSObject, AudioRenderer {
         shouldAutoplay = false
         isLoadingTrack = false
         pendingSeekPosition = nil
+        pendingSeekStartedAt = nil
         activeLoadID = UUID()
         loadTask?.cancel()
         player.stop()
@@ -159,10 +175,14 @@ final class SFBPlaybackRenderer: NSObject, AudioRenderer {
         let frame = AVAudioFramePosition(clamped * sampleRate)
 
         pendingSeekPosition = clamped
+        pendingSeekStartedAt = Date()
         applyState(RendererState(status: state.status, positionSecs: clamped, durationSecs: state.durationSecs, volume: state.volume))
 
-        _ = player.seek(frame: frame)
-        pendingSeekPosition = nil
+        if !player.seek(frame: frame) {
+            pendingSeekPosition = nil
+            pendingSeekStartedAt = nil
+            refreshState()
+        }
     }
 
     func setVolume(_ volume: Int) {
@@ -237,22 +257,30 @@ final class SFBPlaybackRenderer: NSObject, AudioRenderer {
     }
 
     private func refreshState(forceStatus: PlaybackStatus? = nil) {
-        let decoder = player.nowPlaying ?? player.currentDecoder ?? currentDecoder
+        let hasManagedDecoder = currentDecoder != nil
+        let decoder = hasManagedDecoder ? (player.nowPlaying ?? player.currentDecoder ?? currentDecoder) : nil
         let sampleRate = decoder?.processingFormat.sampleRate ?? 0
         let durationSecs = seconds(fromFramePosition: decoder?.length ?? 0, sampleRate: sampleRate)
         let actualPosition = seconds(fromFramePosition: decoder?.position ?? 0, sampleRate: sampleRate)
 
-        let positionSecs = pendingSeekPosition ?? actualPosition
-        if pendingSeekPosition != nil, actualPosition > 0, abs(actualPosition - pendingSeekPosition!) < 0.5 {
-            pendingSeekPosition = nil
+        if let pendingSeekPosition {
+            let seekMatched = abs(actualPosition - pendingSeekPosition) < 0.5
+            let seekTimedOut = pendingSeekStartedAt.map { Date().timeIntervalSince($0) >= pendingSeekTimeout } ?? false
+
+            if seekMatched || seekTimedOut {
+                self.pendingSeekPosition = nil
+                self.pendingSeekStartedAt = nil
+            }
         }
+
+        let positionSecs = pendingSeekPosition ?? actualPosition
 
         let status: PlaybackStatus
         if let forceStatus {
             status = forceStatus
         } else if isLoadingTrack {
             status = .loading
-        } else if decoder != nil || player.isReady {
+        } else if hasManagedDecoder {
             switch player.playbackState {
             case .playing:
                 status = .playing
@@ -312,6 +340,7 @@ extension SFBPlaybackRenderer: AudioPlayer.Delegate {
             guard let self else { return }
             self.isLoadingTrack = false
             self.pendingSeekPosition = nil
+            self.pendingSeekStartedAt = nil
             self.player.stop()
             self.replaceResources(decoder: nil, inputSource: nil)
             self.refreshState(forceStatus: .stopped)
@@ -323,6 +352,7 @@ extension SFBPlaybackRenderer: AudioPlayer.Delegate {
             guard let self else { return }
             self.isLoadingTrack = false
             self.pendingSeekPosition = nil
+            self.pendingSeekStartedAt = nil
             self.player.stop()
             self.replaceResources(decoder: nil, inputSource: nil)
             self.refreshState(forceStatus: .stopped)

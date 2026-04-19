@@ -2,15 +2,28 @@ import Foundation
 import Observation
 import KanadeKit
 
+struct LocalPlaybackSnapshot: Sendable {
+    let queue: [Track]
+    let currentIndex: Int?
+    let currentTrack: Track?
+    let status: PlaybackStatus
+    let isPlayingLike: Bool
+    let positionSecs: Double
+    let durationSecs: Double
+    let volume: Int
+    let repeatMode: RepeatMode
+    let shuffleEnabled: Bool
+}
+
 @MainActor
 @Observable
 final class LocalPlaybackController {
-    let avRenderer: AVQueuePlayerRenderer
+    private let avRenderer: AVQueuePlayerRenderer
     private let sfbRenderer = SFBPlaybackRenderer()
-    let queue: LocalQueue
-    let nowPlayingManager: NowPlayingManager
+    private let queue: LocalQueue
+    private let nowPlayingManager: NowPlayingManager
 
-    var renderer: any AudioRenderer { currentTrackIsFLAC ? sfbRenderer : avRenderer }
+    private var renderer: any AudioRenderer { currentTrackIsFLAC ? sfbRenderer : avRenderer }
 
     @ObservationIgnored private var mediaClient: MediaClient?
     @ObservationIgnored private var updateTimer: Task<Void, Never>?
@@ -19,16 +32,32 @@ final class LocalPlaybackController {
     @ObservationIgnored private var cachedArtworkAlbumId: String?
     @ObservationIgnored private var cachedArtworkData: Data?
     @ObservationIgnored private var pendingSeekAfterLoad: Double?
+    @ObservationIgnored private var playbackIntentIsPlaying = false
 
     private var currentTrackIsFLAC = false
 
-    @ObservationIgnored var onStateUpdate: (([Track], Int?, Double, PlaybackStatus, Int, RepeatMode, Bool) -> Void)?
+    @ObservationIgnored var onSnapshotChanged: ((LocalPlaybackSnapshot) -> Void)?
 
     var isPlaying: Bool { renderer.state.status == .playing }
     var currentTrack: Track? { queue.currentTrack }
     var positionSecs: Double { renderer.state.positionSecs }
     var durationSecs: Double { renderer.state.durationSecs }
     var volume: Int { renderer.state.volume }
+    var snapshot: LocalPlaybackSnapshot {
+        let status = renderer.state.status
+        return LocalPlaybackSnapshot(
+            queue: queue.tracks,
+            currentIndex: queue.currentIndex,
+            currentTrack: queue.currentTrack,
+            status: status,
+            isPlayingLike: status == .playing || (status == .loading && playbackIntentIsPlaying),
+            positionSecs: renderer.state.positionSecs,
+            durationSecs: max(renderer.state.durationSecs, queue.currentTrack?.durationSecs ?? 0),
+            volume: renderer.state.volume,
+            repeatMode: queue.repeatMode,
+            shuffleEnabled: queue.shuffleEnabled
+        )
+    }
 
     init(mediaClient: MediaClient?) {
         self.mediaClient = mediaClient
@@ -64,6 +93,7 @@ final class LocalPlaybackController {
 
     func play() {
         startUpdateTimer()
+        playbackIntentIsPlaying = true
         if currentTrack == nil, !queue.tracks.isEmpty {
             queue.jumpToIndex(queue.currentIndex ?? 0)
             loadCurrentTrack(autoplay: true)
@@ -76,15 +106,21 @@ final class LocalPlaybackController {
         }
 
         renderer.play()
-        updateNowPlaying()
+        if !currentTrackIsFLAC {
+            updateNowPlaying()
+        }
     }
 
     func pause() {
+        playbackIntentIsPlaying = false
         renderer.pause()
-        updateNowPlaying()
+        if !currentTrackIsFLAC {
+            updateNowPlaying()
+        }
     }
 
     func stop() {
+        playbackIntentIsPlaying = false
         updateTimer?.cancel()
         currentTrackLoadTask?.cancel()
         nextTrackPreloadTask?.cancel()
@@ -209,8 +245,8 @@ final class LocalPlaybackController {
     }
 
     func exportForHandoff() -> (tracks: [Track], index: Int?, positionSecs: Double) {
-        let exported = queue.exportQueue()
-        return (tracks: exported.tracks, index: exported.index, positionSecs: renderer.state.positionSecs)
+        let snapshot = snapshot
+        return (tracks: snapshot.queue, index: snapshot.currentIndex, positionSecs: snapshot.positionSecs)
     }
 
     private func bindRenderers() {
@@ -274,6 +310,7 @@ final class LocalPlaybackController {
             return
         }
 
+        playbackIntentIsPlaying = autoplay
         startUpdateTimer()
         currentTrackLoadTask?.cancel()
         nextTrackPreloadTask?.cancel()
@@ -343,7 +380,8 @@ final class LocalPlaybackController {
     }
 
     private func updateNowPlaying() {
-        let playbackRate = renderer.state.status == .playing ? 1.0 : 0.0
+        let snapshot = snapshot
+        let playbackRate = snapshot.status == .playing ? 1.0 : 0.0
 
         let artwork: Data?
         if let albumId = currentTrack?.albumId, albumId == cachedArtworkAlbumId {
@@ -355,11 +393,13 @@ final class LocalPlaybackController {
         }
 
         nowPlayingManager.updateNowPlaying(
-            track: currentTrack,
+            track: snapshot.currentTrack,
             artworkData: artwork,
-            duration: renderer.state.durationSecs > 0 ? renderer.state.durationSecs : (currentTrack?.durationSecs ?? 0),
-            position: renderer.state.positionSecs,
-            playbackRate: playbackRate
+            duration: snapshot.durationSecs,
+            position: snapshot.positionSecs,
+            playbackRate: playbackRate,
+            status: snapshot.status,
+            isPlayingLike: snapshot.isPlayingLike
         )
 
         fetchArtworkIfNeeded()
@@ -380,11 +420,13 @@ final class LocalPlaybackController {
             cachedArtworkData = data
             let playbackRate = renderer.state.status == .playing ? 1.0 : 0.0
             nowPlayingManager.updateNowPlaying(
-                track: currentTrack,
+                track: self.snapshot.currentTrack,
                 artworkData: data,
-                duration: renderer.state.durationSecs > 0 ? renderer.state.durationSecs : (currentTrack?.durationSecs ?? 0),
-                position: renderer.state.positionSecs,
-                playbackRate: playbackRate
+                duration: self.snapshot.durationSecs,
+                position: self.snapshot.positionSecs,
+                playbackRate: playbackRate,
+                status: self.snapshot.status,
+                isPlayingLike: self.snapshot.isPlayingLike
             )
         }
     }
@@ -402,14 +444,6 @@ final class LocalPlaybackController {
     }
 
     private func emitStateUpdate() {
-        onStateUpdate?(
-            queue.tracks,
-            queue.currentIndex,
-            renderer.state.positionSecs,
-            renderer.state.status,
-            renderer.state.volume,
-            queue.repeatMode,
-            queue.shuffleEnabled
-        )
+        onSnapshotChanged?(snapshot)
     }
 }
