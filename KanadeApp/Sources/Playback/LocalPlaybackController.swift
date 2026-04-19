@@ -5,14 +5,22 @@ import KanadeKit
 @MainActor
 @Observable
 final class LocalPlaybackController {
-    let renderer: AVQueuePlayerRenderer
+    let avRenderer: AVQueuePlayerRenderer
+    private let sfbRenderer = SFBPlaybackRenderer()
     let queue: LocalQueue
     let nowPlayingManager: NowPlayingManager
 
+    var renderer: any AudioRenderer { currentTrackIsFLAC ? sfbRenderer : avRenderer }
+
     @ObservationIgnored private var mediaClient: MediaClient?
     @ObservationIgnored private var updateTimer: Task<Void, Never>?
+    @ObservationIgnored private var currentTrackLoadTask: Task<Void, Never>?
+    @ObservationIgnored private var nextTrackPreloadTask: Task<Void, Never>?
     @ObservationIgnored private var cachedArtworkAlbumId: String?
     @ObservationIgnored private var cachedArtworkData: Data?
+    @ObservationIgnored private var pendingSeekAfterLoad: Double?
+
+    private var currentTrackIsFLAC = false
 
     @ObservationIgnored var onStateUpdate: (([Track], Int?, Double, PlaybackStatus, Int, RepeatMode, Bool) -> Void)?
 
@@ -24,14 +32,14 @@ final class LocalPlaybackController {
 
     init(mediaClient: MediaClient?) {
         self.mediaClient = mediaClient
-        self.renderer = AVQueuePlayerRenderer()
+        self.avRenderer = AVQueuePlayerRenderer()
         self.queue = LocalQueue()
         self.nowPlayingManager = NowPlayingManager()
 
-        self.renderer.mediaClient = mediaClient
+        self.avRenderer.mediaClient = mediaClient
 
         nowPlayingManager.configureAudioSession()
-        bindRenderer()
+        bindRenderers()
         configureCommandHandlers()
         updateNowPlaying()
         startUpdateTimer()
@@ -39,11 +47,13 @@ final class LocalPlaybackController {
 
     func updateMediaClient(_ mediaClient: MediaClient?) {
         self.mediaClient = mediaClient
-        renderer.mediaClient = mediaClient
+        avRenderer.mediaClient = mediaClient
     }
 
     deinit {
         updateTimer?.cancel()
+        currentTrackLoadTask?.cancel()
+        nextTrackPreloadTask?.cancel()
     }
 
     func playTracks(_ tracks: [Track], startIndex: Int = 0) {
@@ -76,7 +86,11 @@ final class LocalPlaybackController {
 
     func stop() {
         updateTimer?.cancel()
-        renderer.stop()
+        currentTrackLoadTask?.cancel()
+        nextTrackPreloadTask?.cancel()
+        pendingSeekAfterLoad = nil
+        avRenderer.stop()
+        sfbRenderer.stop()
         nowPlayingManager.clearNowPlaying()
         emitStateUpdate()
     }
@@ -189,10 +203,8 @@ final class LocalPlaybackController {
             return
         }
 
+        pendingSeekAfterLoad = positionSecs
         loadCurrentTrack(autoplay: false)
-        if let positionSecs {
-            renderer.seek(to: positionSecs)
-        }
         updateNowPlaying()
     }
 
@@ -201,15 +213,30 @@ final class LocalPlaybackController {
         return (tracks: exported.tracks, index: exported.index, positionSecs: renderer.state.positionSecs)
     }
 
-    private func bindRenderer() {
+    private func bindRenderers() {
+        bindRenderer(avRenderer, isFLACRenderer: false)
+        bindRenderer(sfbRenderer, isFLACRenderer: true)
+    }
+
+    private func bindRenderer<Renderer: AudioRenderer>(_ renderer: Renderer, isFLACRenderer: Bool) {
         renderer.onStateChanged = { [weak self] _ in
             guard let self else { return }
+            guard self.currentTrackIsFLAC == isFLACRenderer else { return }
+
+            if let pendingSeekAfterLoad = self.pendingSeekAfterLoad,
+               renderer.state.status != .loading,
+               renderer.state.durationSecs > 0 {
+                self.pendingSeekAfterLoad = nil
+                renderer.seek(to: pendingSeekAfterLoad)
+            }
+
             self.updateNowPlaying()
             self.emitStateUpdate()
         }
 
         renderer.onTrackAdvanced = { [weak self] in
             guard let self else { return }
+            guard self.currentTrackIsFLAC == isFLACRenderer else { return }
             guard self.queue.advance() else {
                 self.stop()
                 return
@@ -220,6 +247,7 @@ final class LocalPlaybackController {
 
         renderer.onTrackFinished = { [weak self] in
             guard let self else { return }
+            guard self.currentTrackIsFLAC == isFLACRenderer else { return }
             guard self.queue.advance() else {
                 self.stop()
                 return
@@ -241,24 +269,77 @@ final class LocalPlaybackController {
     }
 
     private func loadCurrentTrack(autoplay: Bool) {
-        guard let currentTrack, let url = mediaClient?.trackURL(trackId: currentTrack.id) else {
+        guard let currentTrack, let mediaClient else {
             stop()
             return
         }
 
         startUpdateTimer()
-        renderer.loadTrack(url: url, autoplay: autoplay)
-        preloadNextTrack()
-        updateNowPlaying()
+        currentTrackLoadTask?.cancel()
+        nextTrackPreloadTask?.cancel()
+
+        let track = currentTrack
+        let isCurrentTrackFLAC = isFLAC(track)
+        currentTrackIsFLAC = isCurrentTrackFLAC
+
+        if isCurrentTrackFLAC {
+            avRenderer.stop()
+        } else {
+            sfbRenderer.stop()
+        }
+
+        currentTrackLoadTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+
+            do {
+                let url = try await self.playbackURL(for: track, mediaClient: mediaClient)
+                guard self.currentTrack?.id == track.id else { return }
+
+                if isCurrentTrackFLAC {
+                    self.sfbRenderer.loadTrack(url: url, autoplay: autoplay)
+                } else {
+                    self.avRenderer.loadTrack(url: url, autoplay: autoplay)
+                }
+
+                self.preloadNextTrack()
+                self.updateNowPlaying()
+            } catch {
+                guard self.currentTrack?.id == track.id else { return }
+                self.stop()
+            }
+        }
     }
 
     private func preloadNextTrack() {
+        nextTrackPreloadTask?.cancel()
+
         guard let nextTrack = queue.nextTrack,
-              let url = mediaClient?.trackURL(trackId: nextTrack.id) else {
+              let mediaClient else {
             return
         }
 
-        renderer.prepareNext(url: url)
+        nextTrackPreloadTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+
+            do {
+                let url = try await self.playbackURL(for: nextTrack, mediaClient: mediaClient)
+                guard self.queue.nextTrack?.id == nextTrack.id else { return }
+                if self.isFLAC(nextTrack) {
+                    self.sfbRenderer.prepareNext(url: url)
+                } else {
+                    self.avRenderer.prepareNext(url: url)
+                }
+            } catch {
+            }
+        }
+    }
+
+    private func playbackURL(for track: Track, mediaClient: MediaClient) async throws -> URL {
+        try await mediaClient.signedTrackURL(trackId: track.id)
+    }
+
+    private func isFLAC(_ track: Track) -> Bool {
+        track.format?.localizedCaseInsensitiveCompare("flac") == .orderedSame
     }
 
     private func updateNowPlaying() {
