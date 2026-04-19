@@ -5,11 +5,13 @@ import FLAC
 
 #if DEBUG
 private func flacPlaybackLog(_ message: @autoclosure () -> String) {
-    print("[FLACPlayback] \(message())")
+    guard PlaybackDebug.decoderLogsEnabled else { return }
+    _ = message
 }
 
 private func fileDecoderLog(_ message: @autoclosure () -> String) {
-    print("[AVFileDecoder] \(message())")
+    guard PlaybackDebug.decoderLogsEnabled else { return }
+    _ = message
 }
 #endif
 
@@ -87,6 +89,7 @@ protocol DecoderSession: AnyObject {
     func seek(to positionSecs: Double) throws
     func decodeNextBuffer(frameCapacity: AVAudioFrameCount) throws -> DecoderReadResult
     func close()
+    func waitForReadiness() async throws
 }
 
 enum DecoderReadResult {
@@ -99,6 +102,7 @@ enum DecoderReadResult {
 protocol AudioDecodingBackend: AnyObject {
     func makeSession(for source: any AudioDecoderSource) async throws -> any DecoderSession
     func prepareForPlayback(of source: any AudioDecoderSource) async
+    func prepareSession(for source: any AudioDecoderSource) async throws -> any DecoderSession
 }
 
 fileprivate enum DecoderBackendKind {
@@ -166,6 +170,10 @@ final class AVAudioFileDecodingBackend: AudioDecodingBackend {
     func prepareForPlayback(of source: any AudioDecoderSource) async {
         await source.prepareForLikelyPlayback()
     }
+
+    func prepareSession(for source: any AudioDecoderSource) async throws -> any DecoderSession {
+        try await makeSession(for: source)
+    }
 }
 
 @MainActor
@@ -195,6 +203,15 @@ final class RoutedAudioDecodingBackend: AudioDecodingBackend {
             await defaultBackend.prepareForPlayback(of: source)
         case .flac:
             await flacBackend.prepareForPlayback(of: source)
+        }
+    }
+
+    func prepareSession(for source: any AudioDecoderSource) async throws -> any DecoderSession {
+        switch decoderBackend(for: source) {
+        case .avAudioFile:
+            return try await defaultBackend.prepareSession(for: source)
+        case .flac:
+            return try await flacBackend.prepareSession(for: source)
         }
     }
 
@@ -244,6 +261,10 @@ final class LibFLACDecodingBackend: AudioDecodingBackend {
 
     func prepareForPlayback(of source: any AudioDecoderSource) async {
         await source.prepareForLikelyPlayback()
+    }
+
+    func prepareSession(for source: any AudioDecoderSource) async throws -> any DecoderSession {
+        try await makeSession(for: source)
     }
 }
 
@@ -315,6 +336,9 @@ private final class AVAudioFileDecoderSession: DecoderSession {
     }
 
     func close() {
+    }
+
+    func waitForReadiness() async throws {
     }
 
     private func decodeBufferWithoutConversion(frameCapacity: AVAudioFrameCount) throws -> DecoderReadResult {
@@ -447,7 +471,7 @@ private final class AVAudioFileDecoderSession: DecoderSession {
     }
 }
 
-private enum FLACProgressiveSourceAccessError: Error {
+enum FLACProgressiveSourceAccessError: Error {
     case wouldBlock
 }
 
@@ -594,7 +618,7 @@ private final class CacheBackedFLACByteSource: @unchecked Sendable {
             let data = try cacheEntry.read(range: readRange)
             data.withUnsafeBytes { rawBuffer in
                 guard let baseAddress = rawBuffer.baseAddress else { return }
-                buffer.assign(from: baseAddress.assumingMemoryBound(to: FLAC__byte.self), count: data.count)
+                buffer.update(from: baseAddress.assumingMemoryBound(to: FLAC__byte.self), count: data.count)
             }
             byteCount.pointee = data.count
             updateCurrentOffset(readRange.upperBound)
@@ -814,6 +838,7 @@ private final class LibFLACDecoderSession: DecoderSession {
     private let requiresConversion: Bool
     private var converter: AVAudioConverter?
     private var reachedEndOfStream = false
+    private var sessionGeneration = UUID()
 
     init(source: ResolvedAudioDecoderSource, byteSource: CacheBackedFLACByteSource? = nil, outputFormat: AVAudioFormat) throws {
         self.wrapper = try FLACDecoderWrapper(source: source, byteSource: byteSource)
@@ -847,7 +872,21 @@ private final class LibFLACDecoderSession: DecoderSession {
     func seek(to positionSecs: Double) throws {
         let clampedPosition = min(max(positionSecs, 0), durationSecs)
         let sample = UInt64(clampedPosition * sourceSampleRate)
+        
+        sessionGeneration = UUID()
+        
         guard wrapper.seek(toSample: sample) else {
+            if let byteSource = wrapper.byteSource {
+                switch byteSource.consumeLastReadOutcome() {
+                case .wouldBlock:
+                    _ = FLAC__stream_decoder_flush(wrapper.decoder)
+                    throw FLACProgressiveSourceAccessError.wouldBlock
+                case .failure(let error):
+                    throw error
+                case .endOfStream, .none:
+                    throw NSError(domain: "AudioDecodingBackend.LibFLACDecoderSession", code: -11)
+                }
+            }
             throw NSError(domain: "AudioDecodingBackend.LibFLACDecoderSession", code: -11)
         }
         reachedEndOfStream = false
@@ -883,6 +922,11 @@ private final class LibFLACDecoderSession: DecoderSession {
         converter = nil
     }
 
+    func waitForReadiness() async throws {
+        guard let byteSource = wrapper.byteSource else { return }
+        try await byteSource.waitForPendingFetch()
+    }
+
     private func decodeWithoutConversion(frameCapacity: AVAudioFrameCount) throws -> DecoderReadResult {
         guard let buffer = AVAudioPCMBuffer(pcmFormat: sourceFormat, frameCapacity: frameCapacity) else {
             throw NSError(domain: "AudioDecodingBackend.LibFLACDecoderSession", code: -12)
@@ -909,6 +953,8 @@ private final class LibFLACDecoderSession: DecoderSession {
         var hitWouldBlock = false
 
         let sourceFrameCapacity = sourceFrameCapacity(forOutputFrameCapacity: frameCapacity)
+        let wrapper = self.wrapper
+        var localReachedEndOfStream = reachedEndOfStream
 
         let status = converter.convert(to: outputBuffer, error: &conversionError) { _, outStatus in
             do {
@@ -917,7 +963,7 @@ private final class LibFLACDecoderSession: DecoderSession {
                     return nil
                 }
 
-                switch try Self.fillPCMBuffer(inputBuffer, frameCapacity: sourceFrameCapacity, wrapper: self.wrapper, reachedEndOfStream: &self.reachedEndOfStream) {
+                switch try Self.fillPCMBuffer(inputBuffer, frameCapacity: sourceFrameCapacity, wrapper: wrapper, reachedEndOfStream: &localReachedEndOfStream) {
                 case .frames:
                     outStatus.pointee = .haveData
                     return inputBuffer
@@ -943,6 +989,8 @@ private final class LibFLACDecoderSession: DecoderSession {
         if let conversionError {
             throw conversionError
         }
+
+        reachedEndOfStream = localReachedEndOfStream
 
         switch status {
         case .haveData, .inputRanDry, .endOfStream:
@@ -977,7 +1025,7 @@ private final class LibFLACDecoderSession: DecoderSession {
 
             for (channelIndex, sourceChannel) in decodedFrame.channels.enumerated() {
                 sourceChannel.withUnsafeBufferPointer { sourceSamples in
-                    channelData[channelIndex].assign(from: sourceSamples.baseAddress!, count: Int(framesAvailable))
+                    channelData[channelIndex].update(from: sourceSamples.baseAddress!, count: Int(framesAvailable))
                 }
             }
 
@@ -1004,7 +1052,7 @@ private final class LibFLACDecoderSession: DecoderSession {
 }
 
 private final class FLACDecoderWrapper {
-    private let decoder: UnsafeMutablePointer<FLAC__StreamDecoder>
+    fileprivate let decoder: UnsafeMutablePointer<FLAC__StreamDecoder>
     fileprivate let byteSource: CacheBackedFLACByteSource?
     private let source: ResolvedAudioDecoderSource
     private var reachedEndOfStream = false

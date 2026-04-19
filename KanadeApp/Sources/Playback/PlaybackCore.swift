@@ -2,6 +2,16 @@ import Foundation
 import Observation
 import KanadeKit
 
+#if DEBUG
+private let playbackCoreLogOrigin = ProcessInfo.processInfo.systemUptime
+
+private func playbackCoreLog(_ message: @autoclosure () -> String) {
+    guard PlaybackDebug.lifecycleLogsEnabled else { return }
+    let elapsed = ProcessInfo.processInfo.systemUptime - playbackCoreLogOrigin
+    print("[PlaybackCore +\(String(format: "%.3f", elapsed))s] \(message())")
+}
+#endif
+
 struct LocalPlaybackSnapshot: Sendable {
     let queue: [Track]
     let currentIndex: Int?
@@ -48,9 +58,9 @@ final class PlaybackCore {
 
     @ObservationIgnored private var mediaClient: MediaClient?
     @ObservationIgnored private var currentTrackLoadTask: Task<Void, Never>?
-    @ObservationIgnored private var nextTrackPreloadTask: Task<Void, Never>?
     @ObservationIgnored private var pendingSeekAfterLoad: Double?
     @ObservationIgnored private var playbackIntentIsPlaying = false
+    @ObservationIgnored private var queueGeneration = UUID()
 
     var isPlaying: Bool { renderer.state.status == .playing }
     var queuedTracks: [Track] { queue.tracks }
@@ -116,7 +126,6 @@ final class PlaybackCore {
 
     deinit {
         currentTrackLoadTask?.cancel()
-        nextTrackPreloadTask?.cancel()
     }
 
     func updateMediaClient(_ mediaClient: MediaClient?) {
@@ -125,6 +134,7 @@ final class PlaybackCore {
 
     func playTracks(_ tracks: [Track], startIndex: Int = 0) {
         queue.setTracks(tracks, startIndex: startIndex)
+        queueGeneration = UUID()
         loadCurrentTrack(autoplay: true)
     }
 
@@ -133,6 +143,7 @@ final class PlaybackCore {
 
         if currentTrack == nil, !queue.tracks.isEmpty {
             queue.jumpToIndex(queue.currentIndex ?? 0)
+            queueGeneration = UUID()
             loadCurrentTrack(autoplay: true)
             return
         }
@@ -155,8 +166,8 @@ final class PlaybackCore {
     func stop() {
         playbackIntentIsPlaying = false
         currentTrackLoadTask?.cancel()
-        nextTrackPreloadTask?.cancel()
         pendingSeekAfterLoad = nil
+        renderer.clearNextCandidate()
         renderer.stop()
         emitSnapshotChange()
     }
@@ -175,6 +186,7 @@ final class PlaybackCore {
             stop()
             return
         }
+        queueGeneration = UUID()
         loadCurrentTrack(autoplay: true)
     }
 
@@ -188,17 +200,21 @@ final class PlaybackCore {
             seek(to: 0)
             return
         }
+        queueGeneration = UUID()
         loadCurrentTrack(autoplay: true)
     }
 
     func setRepeat(_ mode: RepeatMode) {
         queue.setRepeat(mode)
+        queueGeneration = UUID()
+        refreshNextCandidate()
         emitSnapshotChange()
     }
 
     func setShuffle(_ enabled: Bool) {
         queue.setShuffle(enabled)
-        preloadNextTrack()
+        queueGeneration = UUID()
+        refreshNextCandidate()
         emitSnapshotChange()
     }
 
@@ -206,9 +222,11 @@ final class PlaybackCore {
         queue.append(track)
         if currentTrack == nil {
             queue.jumpToIndex(0)
+            queueGeneration = UUID()
             loadCurrentTrack(autoplay: false)
         } else {
-            preloadNextTrack()
+            queueGeneration = UUID()
+            refreshNextCandidate()
             emitSnapshotChange()
         }
     }
@@ -217,9 +235,11 @@ final class PlaybackCore {
         let hadCurrentTrack = currentTrack != nil
         queue.append(contentsOf: tracks)
         if !hadCurrentTrack, currentTrack != nil {
+            queueGeneration = UUID()
             loadCurrentTrack(autoplay: false)
         } else {
-            preloadNextTrack()
+            queueGeneration = UUID()
+            refreshNextCandidate()
             emitSnapshotChange()
         }
     }
@@ -236,9 +256,11 @@ final class PlaybackCore {
         }
 
         if currentTrack.id != previousTrackId {
+            queueGeneration = UUID()
             loadCurrentTrack(autoplay: shouldAutoplay)
         } else {
-            preloadNextTrack()
+            queueGeneration = UUID()
+            refreshNextCandidate()
             emitSnapshotChange()
         }
     }
@@ -250,12 +272,14 @@ final class PlaybackCore {
 
     func jumpToIndex(_ index: Int) {
         queue.jumpToIndex(index)
+        queueGeneration = UUID()
         loadCurrentTrack(autoplay: true)
     }
 
     func moveInQueue(from sourceIndex: Int, to destinationIndex: Int) {
         queue.move(from: sourceIndex, to: destinationIndex)
-        preloadNextTrack()
+        queueGeneration = UUID()
+        refreshNextCandidate()
         emitSnapshotChange()
     }
 
@@ -268,6 +292,7 @@ final class PlaybackCore {
         }
 
         pendingSeekAfterLoad = positionSecs
+        queueGeneration = UUID()
         loadCurrentTrack(autoplay: false)
     }
 
@@ -290,13 +315,44 @@ final class PlaybackCore {
             self.emitSnapshotChange()
         }
 
-        renderer.onTrackFinished = { [weak self] in
+        renderer.onCurrentSessionFinishedWithoutHandoff = { [weak self] in
             guard let self else { return }
+
+            #if DEBUG
+            let finishingTrack = self.currentTrack
+            playbackCoreLog("finished track=\(self.describeTrack(finishingTrack)) index=\(self.queue.currentIndex.map(String.init) ?? "nil")")
+            #endif
+
             guard self.queue.advance() else {
                 self.stop()
                 return
             }
+            self.queueGeneration = UUID()
             self.loadCurrentTrack(autoplay: true)
+        }
+
+        renderer.onNaturalHandoffCommitted = { [weak self] in
+            guard let self else { return }
+
+            #if DEBUG
+            let outgoingTrack = self.currentTrack
+            let incomingTrack = self.queue.nextTrack
+            playbackCoreLog("prepared-handoff from=\(self.describeTrack(outgoingTrack)) to=\(self.describeTrack(incomingTrack)) currentIndex=\(self.queue.currentIndex.map(String.init) ?? "nil")")
+            #endif
+
+            guard self.queue.advance() else {
+                self.stop()
+                return
+            }
+
+            self.queueGeneration = UUID()
+
+            #if DEBUG
+            playbackCoreLog("activated track=\(self.describeTrack(self.currentTrack)) index=\(self.queue.currentIndex.map(String.init) ?? "nil")")
+            #endif
+
+            self.refreshNextCandidate()
+            self.emitSnapshotChange()
         }
     }
 
@@ -309,10 +365,14 @@ final class PlaybackCore {
         let track = currentTrack
         let source = CachedTrackAudioSource(track: track, mediaClient: mediaClient)
 
+        #if DEBUG
+        playbackCoreLog("load track=\(describeTrack(track)) autoplay=\(autoplay) index=\(queue.currentIndex.map(String.init) ?? "nil")")
+        #endif
+
         playbackIntentIsPlaying = autoplay
         currentTrackLoadTask?.cancel()
-        nextTrackPreloadTask?.cancel()
         renderer.beginLoading(durationHint: track.durationSecs, autoplay: autoplay)
+        refreshNextCandidate()
         emitSnapshotChange()
 
         currentTrackLoadTask = Task { @MainActor [weak self] in
@@ -322,37 +382,46 @@ final class PlaybackCore {
                 guard self.currentTrack?.id == track.id else { return }
 
                 try await self.renderer.loadTrack(source: source, autoplay: autoplay)
-                self.preloadNextTrack()
+                self.refreshNextCandidate()
                 self.emitSnapshotChange()
             } catch {
                 guard self.currentTrack?.id == track.id else { return }
-                #if DEBUG
-                print("[PlaybackCore] loadCurrentTrack failed track=\(track.id) error=\(error)")
-                #endif
+
+                if let progressiveError = error as? FLACProgressiveSourceAccessError,
+                   progressiveError == .wouldBlock {
+                    self.emitSnapshotChange()
+                    return
+                }
+
                 self.stop()
             }
         }
     }
 
-    private func preloadNextTrack() {
-        nextTrackPreloadTask?.cancel()
-
-        guard let nextTrack = queue.nextTrack,
-              let mediaClient else {
+    private func refreshNextCandidate() {
+        guard let mediaClient,
+              let nextTrack = queue.nextTrack else {
+            renderer.updateNextCandidate(source: nil, queueGeneration: queueGeneration)
             return
         }
 
         let source = CachedTrackAudioSource(track: nextTrack, mediaClient: mediaClient)
-
-        nextTrackPreloadTask = Task { @MainActor [weak self] in
-            guard let self else { return }
-
-            guard self.queue.nextTrack?.id == nextTrack.id else { return }
-            await self.renderer.prepareNext(source: source)
-        }
+        renderer.updateNextCandidate(source: source, queueGeneration: queueGeneration)
     }
 
     private func emitSnapshotChange() {
         onSnapshotChanged?(snapshot)
     }
+
+    #if DEBUG
+    private func describeTrack(_ track: Track?) -> String {
+        guard let track else { return "<nil>" }
+
+        let title = track.title?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let artist = track.artist?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let resolvedTitle = (title?.isEmpty == false ? title! : URL(fileURLWithPath: track.filePath).lastPathComponent)
+        let resolvedArtist = (artist?.isEmpty == false ? artist! : "Unknown Artist")
+        return "\(resolvedArtist) - \(resolvedTitle) [id=\(track.id)]"
+    }
+    #endif
 }
