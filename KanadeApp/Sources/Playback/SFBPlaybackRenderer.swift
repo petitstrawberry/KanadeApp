@@ -66,7 +66,10 @@ final class SFBPlaybackRenderer: NSObject, AudioRenderer {
                 try Task.checkCancellation()
 
                 let inputSource = try self.makeInputSource(url: url, contentLength: contentLength)
-                let decoder = try AudioDecoder(inputSource: inputSource, decoderName: .FLAC)
+
+                let decoder = try await Task.detached { [inputSource] in
+                    try AudioDecoder(inputSource: inputSource, decoderName: .FLAC)
+                }.value
                 try Task.checkCancellation()
 
                 if self.activeLoadID != loadID {
