@@ -5,18 +5,6 @@ import KanadeKit
 import MediaPlayer
 #endif
 
-#if DEBUG
-private let nowPlayingLogDateFormatter: ISO8601DateFormatter = {
-    let formatter = ISO8601DateFormatter()
-    formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-    return formatter
-}()
-
-private func nowPlayingDebugLog(_ message: @autoclosure () -> String) {
-    print("[NowPlayingManager][\(nowPlayingLogDateFormatter.string(from: Date()))] \(message())")
-}
-#endif
-
 @MainActor
 final class NowPlayingManager {
     private var cachedPlaybackPosition: Double = 0
@@ -99,12 +87,6 @@ final class NowPlayingManager {
         }
 
         infoCenter.nowPlayingInfo = info
-
-        #if DEBUG
-        nowPlayingDebugLog(
-            "updateNowPlaying status=\(status.rawValue) isPlayingLike=\(isPlayingLike) playbackRate=\(playbackRate) position=\(cachedPlaybackPosition) duration=\(duration) audioSessionActive=\(isAudioSessionActive) track=\(track.id)"
-        )
-        #endif
 #endif
     }
 
@@ -119,17 +101,11 @@ final class NowPlayingManager {
         removeCommandTargets()
 
         register(commandCenter.playCommand) { _ in
-            #if DEBUG
-            nowPlayingDebugLog("remoteCommand=play cachedPlaybackPosition=\(self.cachedPlaybackPosition)")
-            #endif
             onPlay()
             return .success
         }
 
         register(commandCenter.pauseCommand) { _ in
-            #if DEBUG
-            nowPlayingDebugLog("remoteCommand=pause cachedPlaybackPosition=\(self.cachedPlaybackPosition)")
-            #endif
             onPause()
             return .success
         }
@@ -167,9 +143,6 @@ final class NowPlayingManager {
             }
 
             self.cachedPlaybackPosition = self.sanitizedPosition(event.positionTime)
-            #if DEBUG
-            nowPlayingDebugLog("remoteCommand=changePlaybackPosition target=\(self.cachedPlaybackPosition)")
-            #endif
             onSeek(self.cachedPlaybackPosition)
             return .success
         }

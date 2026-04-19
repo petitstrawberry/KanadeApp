@@ -111,8 +111,6 @@ final class PlaybackCore {
         self.mediaClient = mediaClient
         self.renderer = UnifiedPlaybackRenderer()
         self.queue = LocalQueue()
-
-        renderer.mediaClient = mediaClient
         bindRenderer()
     }
 
@@ -123,7 +121,6 @@ final class PlaybackCore {
 
     func updateMediaClient(_ mediaClient: MediaClient?) {
         self.mediaClient = mediaClient
-        renderer.mediaClient = mediaClient
     }
 
     func playTracks(_ tracks: [Track], startIndex: Int = 0) {
@@ -293,16 +290,6 @@ final class PlaybackCore {
             self.emitSnapshotChange()
         }
 
-        renderer.onTrackAdvanced = { [weak self] in
-            guard let self else { return }
-            guard self.queue.advance() else {
-                self.stop()
-                return
-            }
-            self.preloadNextTrack()
-            self.emitSnapshotChange()
-        }
-
         renderer.onTrackFinished = { [weak self] in
             guard let self else { return }
             guard self.queue.advance() else {
@@ -319,19 +306,22 @@ final class PlaybackCore {
             return
         }
 
+        let track = currentTrack
+        let source = CachedTrackAudioSource(track: track, mediaClient: mediaClient)
+
         playbackIntentIsPlaying = autoplay
         currentTrackLoadTask?.cancel()
         nextTrackPreloadTask?.cancel()
+        renderer.beginLoading(durationHint: track.durationSecs, autoplay: autoplay)
+        emitSnapshotChange()
 
-        let track = currentTrack
         currentTrackLoadTask = Task { @MainActor [weak self] in
             guard let self else { return }
 
             do {
-                let url = try await self.playbackURL(for: track, mediaClient: mediaClient)
                 guard self.currentTrack?.id == track.id else { return }
 
-                self.renderer.loadTrack(url: url, autoplay: autoplay)
+                try await self.renderer.loadTrack(source: source, autoplay: autoplay)
                 self.preloadNextTrack()
                 self.emitSnapshotChange()
             } catch {
@@ -349,20 +339,14 @@ final class PlaybackCore {
             return
         }
 
+        let source = CachedTrackAudioSource(track: nextTrack, mediaClient: mediaClient)
+
         nextTrackPreloadTask = Task { @MainActor [weak self] in
             guard let self else { return }
 
-            do {
-                let url = try await self.playbackURL(for: nextTrack, mediaClient: mediaClient)
-                guard self.queue.nextTrack?.id == nextTrack.id else { return }
-                self.renderer.prepareNext(url: url)
-            } catch {
-            }
+            guard self.queue.nextTrack?.id == nextTrack.id else { return }
+            await self.renderer.prepareNext(source: source)
         }
-    }
-
-    private func playbackURL(for track: Track, mediaClient: MediaClient) async throws -> URL {
-        try await mediaClient.signedTrackURL(trackId: track.id)
     }
 
     private func emitSnapshotChange() {
