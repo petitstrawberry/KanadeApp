@@ -208,9 +208,9 @@ final class AudioTransportEngine {
         guard let decoderSession else { return }
 
         while scheduledBufferCount < Self.maxScheduledBuffers && !reachedEndOfStream {
-            let buffer: AVAudioPCMBuffer?
+            let readResult: DecoderReadResult
             do {
-                buffer = try decoderSession.decodeNextBuffer(frameCapacity: Self.bufferFrameCapacity)
+                readResult = try decoderSession.decodeNextBuffer(frameCapacity: Self.bufferFrameCapacity)
             } catch {
                 #if DEBUG
                 transportLog("decode error \(error.localizedDescription)")
@@ -219,28 +219,31 @@ final class AudioTransportEngine {
                 return
             }
 
-            guard let buffer else {
+            switch readResult {
+            case .buffer(let buffer):
+                scheduledBufferCount += 1
                 #if DEBUG
-                transportLog("scheduleBuffersIfNeeded got nil buffer")
+                transportLog("schedule buffer frames=\(buffer.frameLength) format=\(buffer.format.commonFormat.rawValue) interleaved=\(buffer.format.isInterleaved) scheduled=\(scheduledBufferCount)")
+                #endif
+                let generation = completionGeneration
+                playerNode.scheduleBuffer(buffer, completionCallbackType: .dataPlayedBack) { [weak self] _ in
+                    Task { @MainActor [weak self] in
+                        guard let self, self.completionGeneration == generation else { return }
+                        self.scheduledBufferCount = max(0, self.scheduledBufferCount - 1)
+                        self.scheduleBuffersIfNeeded()
+                        self.finishTrackIfNeeded()
+                        self.refreshState()
+                    }
+                }
+            case .wouldBlock:
+                return
+            case .endOfStream:
+                #if DEBUG
+                transportLog("scheduleBuffersIfNeeded reached endOfStream")
                 #endif
                 reachedEndOfStream = true
                 finishTrackIfNeeded()
                 return
-            }
-
-            scheduledBufferCount += 1
-            #if DEBUG
-            transportLog("schedule buffer frames=\(buffer.frameLength) format=\(buffer.format.commonFormat.rawValue) interleaved=\(buffer.format.isInterleaved) scheduled=\(scheduledBufferCount)")
-            #endif
-            let generation = completionGeneration
-            playerNode.scheduleBuffer(buffer, completionCallbackType: .dataPlayedBack) { [weak self] _ in
-                Task { @MainActor [weak self] in
-                    guard let self, self.completionGeneration == generation else { return }
-                    self.scheduledBufferCount = max(0, self.scheduledBufferCount - 1)
-                    self.scheduleBuffersIfNeeded()
-                    self.finishTrackIfNeeded()
-                    self.refreshState()
-                }
             }
         }
     }
