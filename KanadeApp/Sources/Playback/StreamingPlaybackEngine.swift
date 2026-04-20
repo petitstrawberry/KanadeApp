@@ -19,17 +19,21 @@ struct StreamingTransportState: Sendable {
 
 @MainActor
 final class StreamingPlaybackEngine {
-    private var player: AVPlayer?
+    private var queuePlayer: AVQueuePlayer?
     private var currentPlayerItem: AVPlayerItem?
     private var timeObserver: Any?
     private var statusObservations: [NSKeyValueObservation] = []
+    private var currentItemObservation: NSKeyValueObservation?
     private var itemStatusObservation: NSKeyValueObservation?
     private var itemDurationObservation: NSKeyValueObservation?
-    private var itemDidPlayToEndTimeObserver: NSObjectProtocol?
+    private var itemFinishedObservers: [(AVPlayerItem, NSObjectProtocol)] = []
     private var shouldAutoplay = true
+    private var hasNextPreloaded = false
+    private var autoAdvanceHandled = false
 
     var onStateChanged: ((StreamingTransportState) -> Void)?
     var onPlaybackFinished: (() -> Void)?
+    var onTrackAdvanced: (() -> Void)?
 
     private(set) var state = StreamingTransportState(
         status: .idle,
@@ -42,14 +46,18 @@ final class StreamingPlaybackEngine {
         cleanupPlayer()
 
         shouldAutoplay = autoplay
+        hasNextPreloaded = false
+        autoAdvanceHandled = false
+
         let item = AVPlayerItem(url: signedURL)
-        let player = AVPlayer(playerItem: item)
+        let player = AVQueuePlayer(playerItem: item)
         player.volume = Float(state.volume) / 100.0
 
-        self.player = player
+        self.queuePlayer = player
         currentPlayerItem = item
 
-        observe(player: player, item: item)
+        observeGlobal(player: player)
+        observeItem(item)
         setupPeriodicTimeObserver()
 
         let initialStatus: StreamingPlaybackStatus = autoplay ? .loading : .paused
@@ -58,25 +66,34 @@ final class StreamingPlaybackEngine {
         updateState(initialStatus)
     }
 
+    func preloadNext(signedURL: URL) {
+        guard let queuePlayer, !hasNextPreloaded else { return }
+
+        let item = AVPlayerItem(url: signedURL)
+        queuePlayer.insert(item, after: nil)
+        hasNextPreloaded = true
+        observeItemFinished(item)
+    }
+
     func play() {
-        guard let player, currentPlayerItem != nil else {
+        guard let queuePlayer, currentPlayerItem != nil else {
             updateState(.stopped)
             return
         }
 
-        player.play()
-        if player.timeControlStatus != .playing {
+        queuePlayer.play()
+        if queuePlayer.timeControlStatus != .playing {
             updateState(.loading)
         }
     }
 
     func pause() {
-        guard let player else {
+        guard let queuePlayer else {
             updateState(.stopped)
             return
         }
 
-        player.pause()
+        queuePlayer.pause()
         state.positionSecs = currentPositionSecs()
         updateState(currentPlayerItem == nil ? .stopped : .paused)
     }
@@ -89,11 +106,11 @@ final class StreamingPlaybackEngine {
     }
 
     func seek(to positionSecs: Double) {
-        guard let player else { return }
+        guard let queuePlayer else { return }
 
         let clampedPosition = max(0, min(positionSecs, resolvedDurationSecs(fallback: positionSecs)))
         let target = CMTime(seconds: clampedPosition, preferredTimescale: 600)
-        player.seek(to: target, toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] finished in
+        queuePlayer.seek(to: target, toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] finished in
             guard finished else { return }
             Task { @MainActor [weak self] in
                 guard let self else { return }
@@ -106,11 +123,11 @@ final class StreamingPlaybackEngine {
     func setVolume(_ volume: Int) {
         let clampedVolume = min(max(volume, 0), 100)
         state.volume = clampedVolume
-        player?.volume = Float(clampedVolume) / 100.0
+        queuePlayer?.volume = Float(clampedVolume) / 100.0
         emitStateChanged()
     }
 
-    private func observe(player: AVPlayer, item: AVPlayerItem) {
+    private func observeGlobal(player: AVQueuePlayer) {
         statusObservations = [
             player.observe(\.timeControlStatus, options: [.initial, .new]) { [weak self] player, _ in
                 Task { @MainActor [weak self] in
@@ -119,6 +136,18 @@ final class StreamingPlaybackEngine {
             }
         ]
 
+        currentItemObservation = player.observe(\.currentItem, options: [.new]) { [weak self] player, change in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                guard let newItem = change.newValue ?? player.currentItem,
+                      newItem !== self.currentPlayerItem else { return }
+
+                self.transitionToItem(newItem)
+            }
+        }
+    }
+
+    private func observeItem(_ item: AVPlayerItem) {
         itemStatusObservation = item.observe(\.status, options: [.initial, .new]) { [weak self] item, _ in
             Task { @MainActor [weak self] in
                 self?.handleItemStatusChanged(item.status)
@@ -133,18 +162,54 @@ final class StreamingPlaybackEngine {
             }
         }
 
-        itemDidPlayToEndTimeObserver = NotificationCenter.default.addObserver(
+        observeItemFinished(item)
+    }
+
+    private func observeItemFinished(_ item: AVPlayerItem) {
+        let observer = NotificationCenter.default.addObserver(
             forName: .AVPlayerItemDidPlayToEndTime,
             object: item,
             queue: .main
         ) { [weak self] _ in
             Task { @MainActor [weak self] in
                 guard let self else { return }
-                self.state.positionSecs = self.resolvedDurationSecs(fallback: self.state.positionSecs)
-                self.updateState(.stopped)
-                self.onPlaybackFinished?()
+
+                // If transitionToItem already handled the auto-advance, skip
+                guard !self.autoAdvanceHandled else { return }
+
+                if self.hasNextPreloaded, let _ = self.queuePlayer?.items().first(where: { $0 !== item && $0 !== self.currentPlayerItem }) {
+                } else {
+                    self.state.positionSecs = self.resolvedDurationSecs(fallback: self.state.positionSecs)
+                    self.updateState(.stopped)
+                    self.onPlaybackFinished?()
+                }
             }
         }
+        itemFinishedObservers.append((item, observer))
+    }
+
+    private func transitionToItem(_ newItem: AVPlayerItem) {
+        autoAdvanceHandled = true
+        currentPlayerItem = newItem
+        state.positionSecs = 0
+        state.durationSecs = 0
+
+        itemStatusObservation = newItem.observe(\.status, options: [.initial, .new]) { [weak self] item, _ in
+            Task { @MainActor [weak self] in
+                self?.handleItemStatusChanged(item.status)
+            }
+        }
+
+        itemDurationObservation = newItem.observe(\.duration, options: [.initial, .new]) { [weak self] item, _ in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.state.durationSecs = self.sanitizedSeconds(item.duration)
+                self.emitStateChanged()
+            }
+        }
+
+        hasNextPreloaded = false
+        onTrackAdvanced?()
     }
 
     private func handleTimeControlStatusChanged(_ timeControlStatus: AVPlayer.TimeControlStatus) {
@@ -171,9 +236,9 @@ final class StreamingPlaybackEngine {
         case .readyToPlay:
             state.durationSecs = resolvedDurationSecs(fallback: state.durationSecs)
             if shouldAutoplay {
-                player?.play()
+                queuePlayer?.play()
             } else {
-                player?.pause()
+                queuePlayer?.pause()
                 updateState(.paused)
             }
         case .failed:
@@ -196,10 +261,10 @@ final class StreamingPlaybackEngine {
     }
 
     private func setupPeriodicTimeObserver() {
-        guard let player else { return }
+        guard let queuePlayer else { return }
 
         let interval = CMTime(seconds: 0.5, preferredTimescale: 600)
-        timeObserver = player.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] time in
+        timeObserver = queuePlayer.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] time in
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 self.state.positionSecs = self.sanitizedSeconds(time)
@@ -210,8 +275,8 @@ final class StreamingPlaybackEngine {
     }
 
     private func currentPositionSecs() -> Double {
-        guard let player else { return state.positionSecs }
-        return sanitizedSeconds(player.currentTime())
+        guard let queuePlayer else { return state.positionSecs }
+        return sanitizedSeconds(queuePlayer.currentTime())
     }
 
     private func resolvedDurationSecs(fallback: Double) -> Double {
@@ -241,24 +306,27 @@ final class StreamingPlaybackEngine {
     }
 
     private func cleanupPlayer() {
-        if let timeObserver, let player {
-            player.removeTimeObserver(timeObserver)
+        if let timeObserver, let queuePlayer {
+            queuePlayer.removeTimeObserver(timeObserver)
         }
         timeObserver = nil
 
-        if let itemDidPlayToEndTimeObserver {
-            NotificationCenter.default.removeObserver(itemDidPlayToEndTimeObserver)
+        for (_, observer) in itemFinishedObservers {
+            NotificationCenter.default.removeObserver(observer)
         }
-        itemDidPlayToEndTimeObserver = nil
+        itemFinishedObservers.removeAll()
 
+        currentItemObservation = nil
         itemStatusObservation = nil
         itemDurationObservation = nil
         statusObservations.removeAll()
 
-        player?.pause()
-        player?.replaceCurrentItem(with: nil)
-        player = nil
+        queuePlayer?.pause()
+        queuePlayer?.removeAllItems()
+        queuePlayer = nil
         currentPlayerItem = nil
+        hasNextPreloaded = false
+        autoAdvanceHandled = false
     }
 
     deinit {

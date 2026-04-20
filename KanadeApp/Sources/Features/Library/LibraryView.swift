@@ -130,8 +130,10 @@ struct LibraryView: View {
 
         do {
             albums = try await client.getAlbums()
-            artists = try await client.getArtists()
-            genres = try await client.getGenres()
+            var seenArtists = Set<String>()
+            artists = try await client.getArtists().filter { seenArtists.insert($0).inserted }
+            var seenGenres = Set<String>()
+            genres = try await client.getGenres().filter { seenGenres.insert($0).inserted }
         } catch {
             if let kanadeError = error as? KanadeError {
                 errorMessage = String(describing: kanadeError)

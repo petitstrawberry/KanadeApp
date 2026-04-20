@@ -43,6 +43,7 @@ final class AppState {
     @ObservationIgnored private let defaults = UserDefaults.standard
     @ObservationIgnored private var didAttemptStartupConnect = false
     @ObservationIgnored private var isResolvingControlledNodeId = false
+    @ObservationIgnored private var localSessionRegistered = false
     private var lastPrefetchQueueKey: String?
 
     var showRemoteUnavailablePrompt = false
@@ -528,9 +529,11 @@ final class AppState {
     func registerLocalSession() {
         guard let client, client.connected else { return }
         client.localSessionStart(deviceName: currentDeviceName, deviceId: deviceId)
+        localSessionRegistered = true
     }
 
     func sendLocalSessionUpdate() {
+        guard localSessionRegistered else { return }
         guard let update = localPlaybackSessionUpdate else { return }
         sendLocalSessionUpdate(update: update)
     }
@@ -556,7 +559,7 @@ final class AppState {
         repeatMode: RepeatMode,
         shuffle: Bool
     ) {
-        guard let client else { return }
+        guard let client, client.connected else { return }
         client.localSessionUpdate(
             queue: queue,
             currentIndex: currentIndex,
@@ -731,6 +734,7 @@ extension AppState: KanadeClientDelegate {
 
     nonisolated func clientDidDisconnect(_ client: KanadeClient, error: (any Error)?) {
         Task { @MainActor [weak self] in
+            self?.localSessionRegistered = false
             self?.mediaClient?.clearMediaAuthSigner()
         }
     }

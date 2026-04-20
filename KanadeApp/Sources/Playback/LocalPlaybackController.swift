@@ -19,6 +19,9 @@ final class LocalPlaybackController {
     @ObservationIgnored private var pendingSeekAfterLoad: Double?
     @ObservationIgnored private var playbackIntentIsPlaying = false
     @ObservationIgnored var onSnapshotChanged: ((LocalPlaybackSnapshot) -> Void)? = nil
+    @ObservationIgnored private var lastTransportPublishTime: CFAbsoluteTime = 0
+    @ObservationIgnored private var preloadTask: Task<Void, Never>?
+    @ObservationIgnored private var didPreloadCurrentNext = false
 
     private var transportState = StreamingTransportState(
         status: .idle,
@@ -293,6 +296,11 @@ final class LocalPlaybackController {
             guard let self else { return }
             self.handlePlaybackFinished()
         }
+
+        engine.onTrackAdvanced = { [weak self] in
+            guard let self else { return }
+            self.handleTrackAdvanced()
+        }
     }
 
     private func handleEngineStateChanged(_ state: StreamingTransportState) {
@@ -303,6 +311,10 @@ final class LocalPlaybackController {
            state.durationSecs > 0 {
             self.pendingSeekAfterLoad = nil
             engine.seek(to: pendingSeekAfterLoad)
+        }
+
+        if case .playing = state.status {
+            preloadNextTrackIfNeeded()
         }
 
         if case .error = state.status {
@@ -319,6 +331,19 @@ final class LocalPlaybackController {
         }
 
         loadCurrentTrack(autoplay: true)
+    }
+
+    private func handleTrackAdvanced() {
+        guard queue.advance() else {
+            stop()
+            return
+        }
+
+        didPreloadCurrentNext = false
+        transportState.positionSecs = 0
+        transportState.durationSecs = max(queue.currentTrack?.durationSecs ?? 0, 0)
+        emitSnapshotChange()
+        preloadNextTrackIfNeeded()
     }
 
     private func handleSnapshotChanged(_ snapshot: LocalPlaybackSnapshot) {
@@ -344,6 +369,8 @@ final class LocalPlaybackController {
 
         playbackIntentIsPlaying = autoplay
         currentTrackLoadTask?.cancel()
+        preloadTask?.cancel()
+        didPreloadCurrentNext = false
 
         let durationHint = max(currentTrack.durationSecs ?? 0, 0)
         transportState.status = autoplay ? .loading : .paused
@@ -373,6 +400,26 @@ final class LocalPlaybackController {
         }
     }
 
+    private func preloadNextTrackIfNeeded() {
+        guard !didPreloadCurrentNext else { return }
+        guard let nextTrack = queue.nextTrack, let mediaClient else { return }
+        guard nextTrack.id != currentTrack?.id else { return }
+
+        didPreloadCurrentNext = true
+        let nextTrackID = nextTrack.id
+        preloadTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            do {
+                let signedURL = try await mediaClient.signedHLSURL(trackId: nextTrackID)
+                guard !Task.isCancelled else { return }
+                guard self.currentTrack?.id != nextTrackID else { return }
+                self.engine.preloadNext(signedURL: signedURL)
+            } catch {
+                didPreloadCurrentNext = false
+            }
+        }
+    }
+
     private func emitSnapshotChange() {
         let snapshot = snapshot
         queue.positionSecs = snapshot.positionSecs
@@ -396,6 +443,9 @@ final class LocalPlaybackController {
     }
 
     private func publishTransportNowPlaying() {
+        let now = CFAbsoluteTimeGetCurrent()
+        guard now - lastTransportPublishTime >= 1.0 else { return }
+        lastTransportPublishTime = now
         publishNowPlaying(fetchArtwork: false)
     }
 

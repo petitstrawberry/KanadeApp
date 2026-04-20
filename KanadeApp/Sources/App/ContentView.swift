@@ -9,6 +9,7 @@ struct ContentView: View {
     @Environment(AppState.self) private var appState
     @State private var sidebarSelection: SidebarItem? = .library
     @State private var showNowPlaying = false
+    @State private var showSettings = false
 
     private var shouldShowPlayerShell: Bool {
         appState.isConnected || appState.localPlayback != nil || appState.shouldShowMiniPlayer
@@ -19,8 +20,21 @@ struct ContentView: View {
             if shouldShowPlayerShell {
                 connectedContent
             } else {
-                ConnectionPrompt()
+                ConnectionPrompt(onOpenSettings: { showSettings = true })
             }
+        }
+        .sheet(isPresented: $showNowPlaying) {
+            NowPlayingView()
+                .environment(appState)
+                .presentationDetents([.large])
+                .presentationDragIndicator(.hidden)
+                .presentationBackground(.clear)
+        }
+        .sheet(isPresented: $showSettings) {
+            NavigationStack {
+                SettingsView()
+            }
+            .environment(appState)
         }
     }
 
@@ -74,12 +88,6 @@ struct ContentView: View {
                 }
                 .buttonStyle(.plain)
             }
-        }
-        .sheet(isPresented: $showNowPlaying) {
-            NowPlayingView()
-                .presentationDetents([.large])
-                .presentationDragIndicator(.hidden)
-                .presentationBackground(.clear)
         }
         .tabBarMinimizeBehavior(.onScrollDown)
     }
@@ -172,7 +180,7 @@ struct ContentView: View {
 
 struct ConnectionPrompt: View {
     @Environment(AppState.self) private var appState
-    @State private var showSettings = false
+    let onOpenSettings: () -> Void
 
     var body: some View {
         VStack(spacing: 24) {
@@ -191,15 +199,10 @@ struct ConnectionPrompt: View {
                 .buttonStyle(.bordered)
             }
             Button("Open Settings") {
-                showSettings = true
+                onOpenSettings()
             }
             .buttonStyle(.borderedProminent)
         }
         .padding()
-        .sheet(isPresented: $showSettings) {
-            NavigationStack {
-                SettingsView()
-            }
-        }
     }
 }

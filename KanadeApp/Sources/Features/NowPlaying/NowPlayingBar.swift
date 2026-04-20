@@ -13,6 +13,7 @@ struct NowPlayingBar: View {
 
     @State private var seekPosition: Double = 0
     @State private var isSeeking = false
+    @State private var pendingSeekTarget: Double?
     @State private var volumeValue: Double = 0
     @State private var isAdjustingVolume = false
 
@@ -257,6 +258,7 @@ struct NowPlayingBar: View {
                             Rectangle()
                                 .fill(Color.accentColor)
                                 .frame(width: geo.size.width * seekProgress)
+                                .animation(isSeeking ? nil : .linear(duration: 0.5), value: seekPosition)
                         }
                         .clipShape(RoundedRectangle(cornerRadius: 2))
                         .contentShape(Rectangle())
@@ -268,6 +270,7 @@ struct NowPlayingBar: View {
                                     isSeeking = true
                                 }
                                 .onEnded { _ in
+                                    pendingSeekTarget = seekPosition
                                     appState.performSeek(to: seekPosition)
                                     isSeeking = false
                                 }
@@ -433,7 +436,12 @@ struct NowPlayingBar: View {
     }
 
     private func handleCurrentPositionChange() {
-        if !isSeeking {
+        if let target = pendingSeekTarget {
+            if abs(currentPosition - target) < 2.0 {
+                pendingSeekTarget = nil
+                seekPosition = min(currentPosition, sliderDuration)
+            }
+        } else if !isSeeking {
             syncSeekPosition()
         }
     }
