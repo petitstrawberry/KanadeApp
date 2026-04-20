@@ -767,6 +767,10 @@ extension AppState: KanadeClientDelegate {
     nonisolated func clientDidConnect(_ client: KanadeClient) {
         Task { @MainActor [weak self] in
             guard let self else { return }
+            self.localSessionRegistered = false
+            self.localSessionRegistrationPending = false
+            self.lastSentLocalSessionUpdateKey = nil
+            self.localNodeId = nil
             if self.controlTarget == .local {
                 self.restoreLocalPlaybackIfNeeded()
             }
@@ -781,7 +785,6 @@ extension AppState: KanadeClientDelegate {
             self?.localSessionRegistered = false
             self?.localSessionRegistrationPending = false
             self?.lastSentLocalSessionUpdateKey = nil
-            self?.mediaClient?.clearMediaAuthSigner()
         }
     }
 

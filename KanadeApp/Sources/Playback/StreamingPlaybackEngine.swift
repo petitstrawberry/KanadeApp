@@ -27,6 +27,8 @@ final class StreamingPlaybackEngine {
     private var itemStatusObservation: NSKeyValueObservation?
     private var itemDurationObservation: NSKeyValueObservation?
     private var itemFinishedObservers: [(AVPlayerItem, NSObjectProtocol)] = []
+    private var naturallyEndedItemIDs: Set<ObjectIdentifier> = []
+    private var transitionedItemIDsAwaitingNaturalEnd: Set<ObjectIdentifier> = []
     private var shouldAutoplay = true
     private var hasNextPreloaded = false
 
@@ -171,6 +173,14 @@ final class StreamingPlaybackEngine {
         ) { [weak self] _ in
             Task { @MainActor [weak self] in
                 guard let self else { return }
+                let itemID = ObjectIdentifier(item)
+
+                self.naturallyEndedItemIDs.insert(itemID)
+
+                if self.transitionedItemIDsAwaitingNaturalEnd.remove(itemID) != nil {
+                    self.onTrackAdvanced?()
+                    return
+                }
 
                 // If transitionToItem already advanced to a new item, this
                 // notification is for the old item — nothing to do.
@@ -185,6 +195,7 @@ final class StreamingPlaybackEngine {
     }
 
     private func transitionToItem(_ newItem: AVPlayerItem) {
+        let previousItem = currentPlayerItem
         currentPlayerItem = newItem
         state.positionSecs = 0
         state.durationSecs = 0
@@ -204,7 +215,16 @@ final class StreamingPlaybackEngine {
         }
 
         hasNextPreloaded = false
-        onTrackAdvanced?()
+
+        guard let previousItem else { return }
+
+        let previousItemID = ObjectIdentifier(previousItem)
+        if naturallyEndedItemIDs.remove(previousItemID) != nil {
+            transitionedItemIDsAwaitingNaturalEnd.remove(previousItemID)
+            onTrackAdvanced?()
+        } else {
+            transitionedItemIDsAwaitingNaturalEnd.insert(previousItemID)
+        }
     }
 
     private func handleTimeControlStatusChanged(_ timeControlStatus: AVPlayer.TimeControlStatus) {
@@ -310,6 +330,8 @@ final class StreamingPlaybackEngine {
             NotificationCenter.default.removeObserver(observer)
         }
         itemFinishedObservers.removeAll()
+        naturallyEndedItemIDs.removeAll()
+        transitionedItemIDsAwaitingNaturalEnd.removeAll()
 
         currentItemObservation = nil
         itemStatusObservation = nil
