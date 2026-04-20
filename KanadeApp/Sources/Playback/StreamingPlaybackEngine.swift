@@ -29,7 +29,6 @@ final class StreamingPlaybackEngine {
     private var itemFinishedObservers: [(AVPlayerItem, NSObjectProtocol)] = []
     private var shouldAutoplay = true
     private var hasNextPreloaded = false
-    private var autoAdvanceHandled = false
 
     var onStateChanged: ((StreamingTransportState) -> Void)?
     var onPlaybackFinished: (() -> Void)?
@@ -47,7 +46,6 @@ final class StreamingPlaybackEngine {
 
         shouldAutoplay = autoplay
         hasNextPreloaded = false
-        autoAdvanceHandled = false
 
         let item = AVPlayerItem(url: signedURL)
         let player = AVQueuePlayer(playerItem: item)
@@ -174,22 +172,19 @@ final class StreamingPlaybackEngine {
             Task { @MainActor [weak self] in
                 guard let self else { return }
 
-                // If transitionToItem already handled the auto-advance, skip
-                guard !self.autoAdvanceHandled else { return }
+                // If transitionToItem already advanced to a new item, this
+                // notification is for the old item — nothing to do.
+                guard item === self.currentPlayerItem else { return }
 
-                if self.hasNextPreloaded, let _ = self.queuePlayer?.items().first(where: { $0 !== item && $0 !== self.currentPlayerItem }) {
-                } else {
-                    self.state.positionSecs = self.resolvedDurationSecs(fallback: self.state.positionSecs)
-                    self.updateState(.stopped)
-                    self.onPlaybackFinished?()
-                }
+                self.state.positionSecs = self.resolvedDurationSecs(fallback: self.state.positionSecs)
+                self.updateState(.stopped)
+                self.onPlaybackFinished?()
             }
         }
         itemFinishedObservers.append((item, observer))
     }
 
     private func transitionToItem(_ newItem: AVPlayerItem) {
-        autoAdvanceHandled = true
         currentPlayerItem = newItem
         state.positionSecs = 0
         state.durationSecs = 0
@@ -326,7 +321,6 @@ final class StreamingPlaybackEngine {
         queuePlayer = nil
         currentPlayerItem = nil
         hasNextPreloaded = false
-        autoAdvanceHandled = false
     }
 
     deinit {

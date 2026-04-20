@@ -10,6 +10,16 @@ enum ControlTarget: String, Codable {
 @MainActor
 @Observable
 final class AppState {
+    struct LocalSessionUpdateKey: Equatable {
+        let trackIDs: [String]
+        let currentIndex: Int?
+        let status: PlaybackStatus
+        let positionMillis: Int
+        let volume: Int
+        let repeatMode: RepeatMode
+        let shuffleEnabled: Bool
+    }
+
     struct EffectiveTransportState: Sendable {
         let positionSecs: Double
         let status: PlaybackStatus
@@ -44,6 +54,9 @@ final class AppState {
     @ObservationIgnored private var didAttemptStartupConnect = false
     @ObservationIgnored private var isResolvingControlledNodeId = false
     @ObservationIgnored private var localSessionRegistered = false
+    @ObservationIgnored private var localSessionRegistrationPending = false
+    @ObservationIgnored private var isLocalPlaybackTearingDown = false
+    @ObservationIgnored private var lastSentLocalSessionUpdateKey: LocalSessionUpdateKey?
     private var lastPrefetchQueueKey: String?
 
     var showRemoteUnavailablePrompt = false
@@ -493,10 +506,15 @@ final class AppState {
     }
 
     func stopLocalPlayback() {
+        isLocalPlaybackTearingDown = true
+        localSessionRegistrationPending = false
+        localSessionRegistered = false
+        lastSentLocalSessionUpdateKey = nil
+        localNodeId = nil
         localPlayback?.stop()
         localPlayback = nil
+        isLocalPlaybackTearingDown = false
         client?.localSessionStop()
-        localNodeId = nil
         controlTarget = .remote
 
         defaults.removeObject(forKey: Self.localQueueKey)
@@ -528,12 +546,16 @@ final class AppState {
 
     func registerLocalSession() {
         guard let client, client.connected else { return }
+        localSessionRegistrationPending = true
+        localSessionRegistered = false
+        lastSentLocalSessionUpdateKey = nil
         client.localSessionStart(deviceName: currentDeviceName, deviceId: deviceId)
-        localSessionRegistered = true
     }
 
     func sendLocalSessionUpdate() {
+        guard !isLocalPlaybackTearingDown else { return }
         guard localSessionRegistered else { return }
+        guard !localSessionRegistrationPending else { return }
         guard let update = localPlaybackSessionUpdate else { return }
         sendLocalSessionUpdate(update: update)
     }
@@ -560,6 +582,28 @@ final class AppState {
         shuffle: Bool
     ) {
         guard let client, client.connected else { return }
+        guard let localNodeId,
+              client.state?.nodes.contains(where: { $0.id == localNodeId }) == true
+        else {
+            localSessionRegistered = false
+            localSessionRegistrationPending = false
+            lastSentLocalSessionUpdateKey = nil
+            return
+        }
+
+        let updateKey = LocalSessionUpdateKey(
+            trackIDs: queue.map(\ .id),
+            currentIndex: currentIndex,
+            status: status,
+            positionMillis: Int((positionSecs * 1000).rounded()),
+            volume: volume,
+            repeatMode: repeatMode,
+            shuffleEnabled: shuffle
+        )
+
+        guard updateKey != lastSentLocalSessionUpdateKey else { return }
+        lastSentLocalSessionUpdateKey = updateKey
+
         client.localSessionUpdate(
             queue: queue,
             currentIndex: currentIndex,
@@ -735,6 +779,8 @@ extension AppState: KanadeClientDelegate {
     nonisolated func clientDidDisconnect(_ client: KanadeClient, error: (any Error)?) {
         Task { @MainActor [weak self] in
             self?.localSessionRegistered = false
+            self?.localSessionRegistrationPending = false
+            self?.lastSentLocalSessionUpdateKey = nil
             self?.mediaClient?.clearMediaAuthSigner()
         }
     }
@@ -748,12 +794,20 @@ extension AppState: KanadeClientDelegate {
 
             if let matchedLocalNode {
                 self.localNodeId = matchedLocalNode.id
+                self.localSessionRegistered = true
+                self.localSessionRegistrationPending = false
             } else if let localNodeId = self.localNodeId,
                       !state.nodes.contains(where: { $0.id == localNodeId }) {
                 self.localNodeId = nil
+                self.localSessionRegistered = false
+                self.localSessionRegistrationPending = false
+                self.lastSentLocalSessionUpdateKey = nil
             }
 
-            if self.localPlayback != nil && self.localNodeId == nil {
+            if self.localPlayback != nil
+                && self.localNodeId == nil
+                && !self.localSessionRegistrationPending
+            {
                 self.registerLocalSession()
             }
 

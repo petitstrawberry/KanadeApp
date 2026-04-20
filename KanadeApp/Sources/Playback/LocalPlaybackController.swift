@@ -121,14 +121,12 @@ final class LocalPlaybackController {
         }
 
         engine.play()
-        emitSnapshotChange()
         publishTransportNowPlaying()
     }
 
     func pause() {
         playbackIntentIsPlaying = false
         engine.pause()
-        emitSnapshotChange()
         publishTransportNowPlaying()
     }
 
@@ -144,7 +142,6 @@ final class LocalPlaybackController {
 
     func seek(to positionSecs: Double) {
         engine.seek(to: positionSecs)
-        emitSnapshotChange()
         publishTransportNowPlaying()
     }
 
@@ -501,11 +498,11 @@ final class LocalPlaybackController {
 
     private func startUpdateTimer() {
         updateTimer?.cancel()
-        updateTimer = Task { [weak self] in
+        updateTimer = Task { @MainActor [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(for: .milliseconds(800))
                 guard let self else { return }
-                guard self.isPlaying || self.snapshot.status != .stopped else { continue }
+                guard self.isPlaying else { continue }
                 self.handleSnapshotChanged(self.snapshot)
             }
         }
