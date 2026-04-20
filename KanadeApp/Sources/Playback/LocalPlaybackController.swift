@@ -5,43 +5,81 @@ import KanadeKit
 @MainActor
 @Observable
 final class LocalPlaybackController {
-    private let core: PlaybackCore
+    private let engine: StreamingPlaybackEngine
+    private let queue: LocalQueue
     private let nowPlayingManager: NowPlayingManager
 
     @ObservationIgnored private var mediaClient: MediaClient?
     @ObservationIgnored private var updateTimer: Task<Void, Never>?
+    @ObservationIgnored private var currentTrackLoadTask: Task<Void, Never>?
     @ObservationIgnored private var cachedArtworkAlbumId: String?
     @ObservationIgnored private var cachedArtworkData: Data?
     @ObservationIgnored private var lastSnapshotTrackID: String?
 
-    @ObservationIgnored var onSnapshotChanged: ((LocalPlaybackSnapshot) -> Void)? = nil {
-        didSet {
-            core.onSnapshotChanged = { [weak self] snapshot in
-                self?.handleCoreSnapshotChanged(snapshot)
-            }
-        }
-    }
+    @ObservationIgnored private var pendingSeekAfterLoad: Double?
+    @ObservationIgnored private var playbackIntentIsPlaying = false
+    @ObservationIgnored var onSnapshotChanged: ((LocalPlaybackSnapshot) -> Void)? = nil
 
-    var isPlaying: Bool { core.isPlaying }
-    var queuedTracks: [Track] { core.queuedTracks }
-    var currentIndex: Int? { core.currentIndex }
-    var currentTrack: Track? { core.currentTrack }
-    var positionSecs: Double { core.positionSecs }
-    var durationSecs: Double { core.durationSecs }
-    var volume: Int { core.volume }
-    var repeatMode: RepeatMode { core.repeatMode }
-    var shuffleEnabled: Bool { core.shuffleEnabled }
-    var snapshot: LocalPlaybackSnapshot { core.snapshot }
-    var transportSnapshot: LocalPlaybackTransportSnapshot { core.transportSnapshot }
-    var sessionUpdate: LocalPlaybackSessionUpdate { core.sessionUpdate }
+    private var transportState = StreamingTransportState(
+        status: .idle,
+        positionSecs: 0,
+        durationSecs: 0,
+        volume: 100
+    )
+
+    var isPlaying: Bool { transportPlaybackStatus == .playing }
+    var queuedTracks: [Track] { queue.tracks }
+    var currentIndex: Int? { queue.currentIndex }
+    var currentTrack: Track? { queue.currentTrack }
+    var positionSecs: Double { transportState.positionSecs }
+    var durationSecs: Double { max(transportState.durationSecs, currentTrack?.durationSecs ?? 0) }
+    var volume: Int { transportState.volume }
+    var repeatMode: RepeatMode { queue.repeatMode }
+    var shuffleEnabled: Bool { queue.shuffleEnabled }
+    var snapshot: LocalPlaybackSnapshot {
+        let status = transportPlaybackStatus
+        return LocalPlaybackSnapshot(
+            queue: queue.tracks,
+            currentIndex: queue.currentIndex,
+            currentTrack: queue.currentTrack,
+            status: status,
+            isPlayingLike: status == .playing || (status == .loading && playbackIntentIsPlaying),
+            positionSecs: transportState.positionSecs,
+            durationSecs: max(transportState.durationSecs, queue.currentTrack?.durationSecs ?? 0),
+            volume: transportState.volume,
+            repeatMode: queue.repeatMode,
+            shuffleEnabled: queue.shuffleEnabled
+        )
+    }
+    var transportSnapshot: LocalPlaybackTransportSnapshot {
+        let snapshot = snapshot
+        return LocalPlaybackTransportSnapshot(
+            positionSecs: snapshot.positionSecs,
+            durationSecs: snapshot.durationSecs,
+            status: snapshot.status,
+            volume: snapshot.volume,
+            isPlayingLike: snapshot.isPlayingLike
+        )
+    }
+    var sessionUpdate: LocalPlaybackSessionUpdate {
+        let snapshot = snapshot
+        return LocalPlaybackSessionUpdate(
+            queue: snapshot.queue,
+            currentIndex: snapshot.currentIndex,
+            transport: transportSnapshot,
+            repeatMode: snapshot.repeatMode,
+            shuffleEnabled: snapshot.shuffleEnabled
+        )
+    }
 
     init(mediaClient: MediaClient?) {
         self.mediaClient = mediaClient
-        self.core = PlaybackCore(mediaClient: mediaClient)
+        self.engine = StreamingPlaybackEngine()
+        self.queue = LocalQueue()
         self.nowPlayingManager = NowPlayingManager()
 
         nowPlayingManager.configureAudioSession()
-        bindCore()
+        bindEngine()
         configureCommandHandlers()
         publishCommittedNowPlaying()
         startUpdateTimer()
@@ -49,92 +87,166 @@ final class LocalPlaybackController {
 
     func updateMediaClient(_ mediaClient: MediaClient?) {
         self.mediaClient = mediaClient
-        core.updateMediaClient(mediaClient)
     }
 
     deinit {
         updateTimer?.cancel()
+        currentTrackLoadTask?.cancel()
     }
 
     func playTracks(_ tracks: [Track], startIndex: Int = 0) {
         startUpdateTimer()
-        core.playTracks(tracks, startIndex: startIndex)
+        queue.setTracks(tracks, startIndex: startIndex)
+        loadCurrentTrack(autoplay: true)
     }
 
     func play() {
         startUpdateTimer()
         nowPlayingManager.setAudioSessionActive(true)
-        core.play()
+
+        playbackIntentIsPlaying = true
+
+        if currentTrack == nil, !queue.tracks.isEmpty {
+            queue.jumpToIndex(queue.currentIndex ?? 0)
+            loadCurrentTrack(autoplay: true)
+            return
+        }
+
+        if transportPlaybackStatus == .stopped, currentTrack != nil {
+            loadCurrentTrack(autoplay: true)
+            return
+        }
+
+        engine.play()
+        emitSnapshotChange()
         publishTransportNowPlaying()
     }
 
     func pause() {
-        core.pause()
+        playbackIntentIsPlaying = false
+        engine.pause()
+        emitSnapshotChange()
         publishTransportNowPlaying()
     }
 
     func stop() {
         updateTimer?.cancel()
-        core.stop()
+        currentTrackLoadTask?.cancel()
+        pendingSeekAfterLoad = nil
+        playbackIntentIsPlaying = false
+        engine.stop()
+        emitSnapshotChange()
         nowPlayingManager.clearNowPlaying()
     }
 
     func seek(to positionSecs: Double) {
-        core.seek(to: positionSecs)
+        engine.seek(to: positionSecs)
+        emitSnapshotChange()
         publishTransportNowPlaying()
     }
 
     func setVolume(_ volume: Int) {
-        core.setVolume(volume)
+        engine.setVolume(volume)
         publishCommittedNowPlaying()
     }
 
     func next() {
-        core.next()
+        guard queue.advance() else {
+            stop()
+            return
+        }
+        loadCurrentTrack(autoplay: true)
     }
 
     func previous() {
-        core.previous()
+        if transportState.positionSecs > 3 {
+            seek(to: 0)
+            return
+        }
+
+        guard queue.goBack() else {
+            seek(to: 0)
+            return
+        }
+        loadCurrentTrack(autoplay: true)
     }
 
     func setRepeat(_ mode: RepeatMode) {
-        core.setRepeat(mode)
+        queue.setRepeat(mode)
+        emitSnapshotChange()
         publishCommittedNowPlaying()
     }
 
     func setShuffle(_ enabled: Bool) {
-        core.setShuffle(enabled)
+        queue.setShuffle(enabled)
+        emitSnapshotChange()
         publishCommittedNowPlaying()
     }
 
     func addToQueue(_ track: Track) {
-        core.addToQueue(track)
+        queue.append(track)
+        if currentTrack == nil {
+            queue.jumpToIndex(0)
+            loadCurrentTrack(autoplay: false)
+        } else {
+            emitSnapshotChange()
+        }
     }
 
     func addTracksToQueue(_ tracks: [Track]) {
-        core.addTracksToQueue(tracks)
+        let hadCurrentTrack = currentTrack != nil
+        queue.append(contentsOf: tracks)
+        if !hadCurrentTrack, currentTrack != nil {
+            loadCurrentTrack(autoplay: false)
+        } else {
+            emitSnapshotChange()
+        }
     }
 
     func removeFromQueue(_ index: Int) {
-        core.removeFromQueue(index)
+        let previousTrackId = currentTrack?.id
+        let shouldAutoplay = transportPlaybackStatus == .playing || transportPlaybackStatus == .loading
+
+        queue.remove(at: index)
+
+        guard let currentTrack else {
+            stop()
+            return
+        }
+
+        if currentTrack.id != previousTrackId {
+            loadCurrentTrack(autoplay: shouldAutoplay)
+        } else {
+            emitSnapshotChange()
+        }
     }
 
     func clearQueue() {
-        core.clearQueue()
+        queue.clear()
         stop()
     }
 
     func jumpToIndex(_ index: Int) {
-        core.jumpToIndex(index)
+        queue.jumpToIndex(index)
+        loadCurrentTrack(autoplay: true)
     }
 
     func moveInQueue(from sourceIndex: Int, to destinationIndex: Int) {
-        core.moveInQueue(from: sourceIndex, to: destinationIndex)
+        queue.move(from: sourceIndex, to: destinationIndex)
+        emitSnapshotChange()
     }
 
     func importPlaybackState(tracks: [Track], index: Int?, positionSecs: Double?) {
         startUpdateTimer()
-        core.importFromServer(tracks: tracks, index: index, positionSecs: positionSecs)
+        queue.importQueue(tracks: tracks, index: index, positionSecs: positionSecs)
+
+        guard currentTrack != nil else {
+            stop()
+            return
+        }
+
+        pendingSeekAfterLoad = positionSecs
+        loadCurrentTrack(autoplay: false)
         publishCommittedNowPlaying()
     }
 
@@ -143,7 +255,14 @@ final class LocalPlaybackController {
     }
 
     func exportPlaybackState() -> LocalPlaybackHandoffState {
-        core.handoffState
+        let snapshot = snapshot
+        return LocalPlaybackHandoffState(
+            tracks: snapshot.queue,
+            currentIndex: snapshot.currentIndex,
+            positionSecs: snapshot.positionSecs,
+            repeatMode: snapshot.repeatMode,
+            shuffleEnabled: snapshot.shuffleEnabled
+        )
     }
 
     func exportForHandoff() -> (tracks: [Track], index: Int?, positionSecs: Double) {
@@ -151,13 +270,58 @@ final class LocalPlaybackController {
         return (tracks: handoffState.tracks, index: handoffState.currentIndex, positionSecs: handoffState.positionSecs)
     }
 
-    private func bindCore() {
-        core.onSnapshotChanged = { [weak self] snapshot in
-            self?.handleCoreSnapshotChanged(snapshot)
+    private var transportPlaybackStatus: PlaybackStatus {
+        switch transportState.status {
+        case .idle, .stopped, .error:
+            return .stopped
+        case .loading:
+            return .loading
+        case .playing:
+            return .playing
+        case .paused:
+            return .paused
         }
     }
 
-    private func handleCoreSnapshotChanged(_ snapshot: LocalPlaybackSnapshot) {
+    private func bindEngine() {
+        engine.onStateChanged = { [weak self] state in
+            guard let self else { return }
+            self.handleEngineStateChanged(state)
+        }
+
+        engine.onPlaybackFinished = { [weak self] in
+            guard let self else { return }
+            self.handlePlaybackFinished()
+        }
+    }
+
+    private func handleEngineStateChanged(_ state: StreamingTransportState) {
+        transportState = state
+
+        if let pendingSeekAfterLoad,
+           transportPlaybackStatus != .loading,
+           state.durationSecs > 0 {
+            self.pendingSeekAfterLoad = nil
+            engine.seek(to: pendingSeekAfterLoad)
+        }
+
+        if case .error = state.status {
+            playbackIntentIsPlaying = false
+        }
+
+        emitSnapshotChange()
+    }
+
+    private func handlePlaybackFinished() {
+        guard queue.advance() else {
+            stop()
+            return
+        }
+
+        loadCurrentTrack(autoplay: true)
+    }
+
+    private func handleSnapshotChanged(_ snapshot: LocalPlaybackSnapshot) {
         if snapshot.currentTrack?.id != lastSnapshotTrackID {
             lastSnapshotTrackID = snapshot.currentTrack?.id
             publishCommittedNowPlaying()
@@ -170,6 +334,49 @@ final class LocalPlaybackController {
         }
 
         onSnapshotChanged?(snapshot)
+    }
+
+    private func loadCurrentTrack(autoplay: Bool) {
+        guard let currentTrack, let mediaClient else {
+            stop()
+            return
+        }
+
+        playbackIntentIsPlaying = autoplay
+        currentTrackLoadTask?.cancel()
+
+        let durationHint = max(currentTrack.durationSecs ?? 0, 0)
+        transportState.status = autoplay ? .loading : .paused
+        transportState.positionSecs = 0
+        transportState.durationSecs = durationHint
+        emitSnapshotChange()
+
+        let trackID = currentTrack.id
+        currentTrackLoadTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+
+            do {
+                let signedURL = try await mediaClient.signedHLSURL(trackId: trackID)
+                guard !Task.isCancelled else { return }
+                guard self.currentTrack?.id == trackID else { return }
+
+                self.engine.load(signedURL: signedURL, autoplay: autoplay)
+            } catch {
+                guard !Task.isCancelled else { return }
+                guard self.currentTrack?.id == trackID else { return }
+
+                self.playbackIntentIsPlaying = false
+                self.transportState.status = .stopped
+                self.transportState.positionSecs = 0
+                self.emitSnapshotChange()
+            }
+        }
+    }
+
+    private func emitSnapshotChange() {
+        let snapshot = snapshot
+        queue.positionSecs = snapshot.positionSecs
+        handleSnapshotChanged(snapshot)
     }
 
     private func configureCommandHandlers() {
@@ -249,7 +456,7 @@ final class LocalPlaybackController {
                 try? await Task.sleep(for: .milliseconds(800))
                 guard let self else { return }
                 guard self.isPlaying || self.snapshot.status != .stopped else { continue }
-                self.handleCoreSnapshotChanged(self.snapshot)
+                self.handleSnapshotChanged(self.snapshot)
             }
         }
     }
