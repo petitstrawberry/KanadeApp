@@ -141,7 +141,11 @@ final class AppState {
     var isConnected: Bool { client?.connected ?? false }
 
     var isRetryingConnection: Bool {
-        client != nil && !isConnected
+        client != nil && !isConnected && !(client?.reconnectExhausted ?? false)
+    }
+
+    var connectionRequiresManualRetry: Bool {
+        client != nil && !isConnected && (client?.reconnectExhausted ?? false)
     }
 
     var hasSavedConnectionSettings: Bool {
@@ -152,8 +156,11 @@ final class AppState {
         if isConnected {
             return "Connected"
         }
+        if connectionRequiresManualRetry {
+            return "Connection Failed"
+        }
         if isRetryingConnection {
-            return "Reconnecting"
+            return "Reconnecting..."
         }
         return "Disconnected"
     }
@@ -529,6 +536,7 @@ final class AppState {
         startLocalPlayback()
         localPlayback?.importPlaybackState(tracks: tracks, index: index, positionSecs: positionSecs)
         controlTarget = .local
+        showRemoteUnavailablePrompt = false
         if wasPlaying {
             localPlayback?.play()
         }
