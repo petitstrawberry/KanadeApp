@@ -13,35 +13,44 @@ struct NowPlayingBar: View {
 
     @State private var seekPosition: Double = 0
     @State private var isSeeking = false
+    @State private var pendingSeekTarget: Double?
     @State private var volumeValue: Double = 0
     @State private var isAdjustingVolume = false
 
+    private var playbackState: AppState.EffectivePlaybackState {
+        appState.effectivePlaybackState
+    }
+
+    private var transportState: AppState.EffectiveTransportState? {
+        playbackState.transport
+    }
+
     private var currentTrack: Track? {
-        appState.effectiveCurrentTrack
+        playbackState.currentTrack
     }
 
     private var isPlaying: Bool {
-        appState.effectiveTransportState?.isPlayingLike ?? false
+        transportState?.isPlayingLike ?? false
     }
 
     private var currentPosition: Double {
-        appState.effectiveTransportState?.positionSecs ?? 0
+        transportState?.positionSecs ?? 0
     }
 
     private var currentVolume: Double {
-        Double(appState.effectiveTransportState?.volume ?? 0)
+        Double(transportState?.volume ?? 0)
     }
 
     private var sliderDuration: Double {
-        max(currentTrack?.durationSecs ?? 0, 1)
+        max(appState.effectiveDurationSecs, playbackState.currentTrack?.durationSecs ?? 0, 1)
     }
 
     private var repeatMode: RepeatMode {
-        appState.effectiveRepeatMode
+        playbackState.repeatMode
     }
 
     private var shuffleEnabled: Bool {
-        appState.effectiveShuffleEnabled
+        playbackState.shuffleEnabled
     }
 
     init(placement: NowPlayingBarPlacement = .iosAccessory) {
@@ -61,25 +70,16 @@ struct NowPlayingBar: View {
         .onChange(of: currentTrack?.id) {
             syncSeekPosition()
         }
-        .onChange(of: currentPosition) {
-            if !isSeeking {
-                syncSeekPosition()
-            }
-        }
-        .onChange(of: currentVolume) {
-            if !isAdjustingVolume {
-                syncVolumeValue()
-            }
-        }
+        .onChange(of: currentPosition, handleCurrentPositionChange)
+        .onChange(of: currentVolume, handleCurrentVolumeChange)
     }
 
     private func barContent(currentTrack: Track) -> some View {
         ViewThatFits(in: .horizontal) {
             fullContent(currentTrack: currentTrack)
-                .frame(minWidth: placement == .iosAccessory ? 10_000 : 768)
-
             compactContent(currentTrack: currentTrack)
         }
+        .frame(maxWidth: .infinity)
         .padding(.horizontal, horizontalPadding)
         .padding(.vertical, verticalPadding)
     }
@@ -89,6 +89,8 @@ struct NowPlayingBar: View {
             compactInfoCluster(currentTrack: currentTrack)
 
             Spacer()
+
+            compactOutputButton
 
             Button {
                 togglePlayback()
@@ -100,22 +102,41 @@ struct NowPlayingBar: View {
             .frame(width: 36, height: 36)
         }
         .padding(.horizontal, 16)
-        .padding(.vertical, 10)
+        .padding(.vertical, 6)
         .frame(maxWidth: .infinity)
-        .frame(height: 60)
+        .frame(height: placement == .iosAccessory ? 60 : 64)
         .modifier(PlacementBackgroundModifier(placement: placement))
     }
 
-    private func fullContent(currentTrack: Track) -> some View {
-        HStack(spacing: 16) {
-            leftColumn(currentTrack: currentTrack)
-            centerColumn
-            rightColumn
+    @ViewBuilder
+    private var compactOutputButton: some View {
+        @Bindable var appState = appState
+        Menu {
+            OutputPickerMenuContent()
+        } label: {
+            Image(systemName: appState.isControllingLocalNode ? "headphones" : "airplayaudio")
+                .font(.system(size: 13))
+                .foregroundStyle(.secondary)
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 8)
+        .menuStyle(.borderlessButton)
+    }
+
+    private func fullContent(currentTrack: Track) -> some View {
+        HStack(spacing: 12) {
+            leftColumn(currentTrack: currentTrack)
+                .frame(minWidth: 80, maxWidth: 280, alignment: .leading)
+
+            centerColumn
+                .frame(minWidth: 320)
+                .frame(maxWidth: .infinity)
+
+            rightColumn
+                .frame(minWidth: 80, maxWidth: 280)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 4)
         .frame(maxWidth: .infinity)
-        .frame(height: 96)
+        .frame(height: placement == .iosAccessory ? 60 : 64)
         .modifier(PlacementBackgroundModifier(placement: placement))
     }
 
@@ -127,18 +148,23 @@ struct NowPlayingBar: View {
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(currentTrack.title ?? "Untitled")
-                    .font(.system(size: 13, weight: .bold))
+                    .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(.primary)
                     .lineLimit(1)
 
                 Text(currentTrack.artist ?? "Unknown Artist")
-                    .font(.system(size: 12))
+                    .font(.system(size: 10))
                     .foregroundStyle(secondaryTextColor)
                     .lineLimit(1)
+
+                if let album = currentTrack.albumTitle, !album.isEmpty {
+                    Text(album)
+                        .font(.system(size: 10))
+                        .foregroundStyle(secondaryTextColor.opacity(0.7))
+                        .lineLimit(1)
+                }
             }
-            Spacer()
         }
-        .frame(maxWidth: .infinity)
         .contentShape(Rectangle())
     }
 
@@ -164,58 +190,58 @@ struct NowPlayingBar: View {
     }
 
     private var centerColumn: some View {
-        VStack(spacing: 6) {
-            HStack(spacing: 20) {
+        VStack(spacing: 2) {
+            HStack(spacing: 16) {
                 Button {
                     appState.performSetShuffle(!shuffleEnabled)
                 } label: {
                     Image(systemName: "shuffle")
-                        .font(.system(size: 14))
+                        .font(.system(size: 12))
                         .foregroundStyle(shuffleEnabled ? Color.accentColor : .secondary)
                 }
                 .buttonStyle(.plain)
-                .frame(width: 44, height: 44)
+                .frame(width: 32, height: 32)
                 .contentShape(Rectangle())
 
                 Button {
                     appState.performPrevious()
                 } label: {
                     Image(systemName: "backward.fill")
-                        .font(.system(size: 14))
+                        .font(.system(size: 12))
                 }
                 .buttonStyle(.plain)
-                .frame(width: 44, height: 44)
+                .frame(width: 32, height: 32)
                 .contentShape(Rectangle())
 
                 Button {
                     togglePlayback()
                 } label: {
                     Image(systemName: isPlaying ? "pause.fill" : "play.fill")
-                        .font(.system(size: 18))
+                        .font(.system(size: 15))
                 }
                 .buttonStyle(.plain)
-                .frame(width: 52, height: 52)
+                .frame(width: 36, height: 36)
                 .contentShape(Rectangle())
 
                 Button {
                     appState.performNext()
                 } label: {
                     Image(systemName: "forward.fill")
-                        .font(.system(size: 14))
+                        .font(.system(size: 12))
                 }
                 .buttonStyle(.plain)
-                .frame(width: 44, height: 44)
+                .frame(width: 32, height: 32)
                 .contentShape(Rectangle())
 
                 Button {
                     appState.performSetRepeat(nextRepeatMode)
                 } label: {
                     Image(systemName: repeatSymbolName)
-                        .font(.system(size: 14))
+                        .font(.system(size: 12))
                         .foregroundStyle(repeatMode != .off ? Color.accentColor : .secondary)
                 }
                 .buttonStyle(.plain)
-                .frame(width: 44, height: 44)
+                .frame(width: 32, height: 32)
                 .contentShape(Rectangle())
             }
 
@@ -232,6 +258,7 @@ struct NowPlayingBar: View {
                             Rectangle()
                                 .fill(Color.accentColor)
                                 .frame(width: geo.size.width * seekProgress)
+                                .animation(isSeeking ? nil : .linear(duration: 0.5), value: seekPosition)
                         }
                         .clipShape(RoundedRectangle(cornerRadius: 2))
                         .contentShape(Rectangle())
@@ -243,6 +270,7 @@ struct NowPlayingBar: View {
                                     isSeeking = true
                                 }
                                 .onEnded { _ in
+                                    pendingSeekTarget = seekPosition
                                     appState.performSeek(to: seekPosition)
                                     isSeeking = false
                                 }
@@ -263,6 +291,8 @@ struct NowPlayingBar: View {
         HStack(spacing: 12) {
             Spacer()
 
+            outputPickerButton
+
             HStack(spacing: 8) {
                 Image(systemName: "speaker.fill")
                     .font(.system(size: 12))
@@ -276,8 +306,11 @@ struct NowPlayingBar: View {
                     in: 0...100,
                     onEditingChanged: { editing in
                         isAdjustingVolume = editing
-                        appState.performSetVolume(Int(volumeValue.rounded()))
+                        if editing {
+                            appState.performSetVolume(Int(volumeValue.rounded()))
+                        }
                         if !editing {
+                            appState.performSetVolume(Int(volumeValue.rounded()))
                             syncVolumeValue()
                         }
                     }
@@ -288,8 +321,23 @@ struct NowPlayingBar: View {
                     .font(.system(size: 12))
                     .foregroundStyle(.secondary)
             }
+            Spacer()
         }
-        .frame(maxWidth: .infinity)
+    }
+
+    @ViewBuilder
+    private var outputPickerButton: some View {
+        @Bindable var appState = appState
+        Menu {
+            OutputPickerMenuContent()
+        } label: {
+            Image(systemName: appState.isControllingLocalNode ? "headphones" : "airplayaudio")
+                .font(.system(size: 14))
+                .foregroundStyle(.secondary)
+                .frame(width: 32, height: 32)
+                .background(Circle().fill(.quaternary.opacity(0.6)))
+        }
+        .menuStyle(.borderlessButton)
     }
 
     @ViewBuilder
@@ -346,7 +394,7 @@ struct NowPlayingBar: View {
         case .iosAccessory:
             return 28
         case .macFloating:
-            return 40
+            return 44
         }
     }
 
@@ -355,7 +403,7 @@ struct NowPlayingBar: View {
         case .iosAccessory:
             return 52
         case .macFloating:
-            return 64
+            return 44
         }
     }
 
@@ -384,6 +432,23 @@ struct NowPlayingBar: View {
             appState.performPause()
         } else {
             appState.performPlay()
+        }
+    }
+
+    private func handleCurrentPositionChange() {
+        if let target = pendingSeekTarget {
+            if abs(currentPosition - target) < 2.0 {
+                pendingSeekTarget = nil
+                seekPosition = min(currentPosition, sliderDuration)
+            }
+        } else if !isSeeking {
+            syncSeekPosition()
+        }
+    }
+
+    private func handleCurrentVolumeChange() {
+        if !isAdjustingVolume {
+            syncVolumeValue()
         }
     }
 
@@ -439,4 +504,11 @@ private struct MacFloatingBarBackground: View {
         }
         .shadow(color: .black.opacity(0.03), radius: 6, y: 2)
     }
+}
+
+#Preview {
+    NowPlayingBar(placement: .iosAccessory)
+        .environment(AppState())
+        .padding()
+        .background(Color.gray.opacity(0.2))
 }

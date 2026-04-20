@@ -23,6 +23,25 @@ struct QueueView: View {
                         Label("Clear Queue", systemImage: "trash")
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
+
+                    let otherNodes = appState.remoteNodes.filter {
+                        $0.id != appState.controlledNodeId
+                    }
+
+                    if !otherNodes.isEmpty {
+                        Menu {
+                            ForEach(otherNodes) { node in
+                                Button {
+                                    appState.switchToRemote(nodeId: node.id)
+                                } label: {
+                                    Label(node.name, systemImage: "arrow.triangle.2.circlepath")
+                                }
+                            }
+                        } label: {
+                            Label("Transfer Queue to...", systemImage: "arrow.triangle.2.circlepath")
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    }
                 }
 
                 Section {

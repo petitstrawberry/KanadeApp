@@ -9,31 +9,44 @@ struct NowPlayingView: View {
     @State private var seekPosition: Double = 0
     @State private var volumeValue: Double = 0
     @State private var isSeeking = false
+    @State private var pendingSeekTarget: Double?
     @State private var isAdjustingVolume = false
     @State private var dominantColor: Color = .clear
 
+    private var playbackState: AppState.EffectivePlaybackState {
+        appState.effectivePlaybackState
+    }
+
+    private var transportState: AppState.EffectiveTransportState? {
+        playbackState.transport
+    }
+
     private var currentTrack: Track? {
-        appState.effectiveCurrentTrack
+        playbackState.currentTrack
     }
 
     private var currentPosition: Double {
-        appState.effectiveTransportState?.positionSecs ?? 0
+        transportState?.positionSecs ?? 0
     }
 
     private var currentVolume: Double {
-        Double(appState.effectiveTransportState?.volume ?? 0)
+        Double(transportState?.volume ?? 0)
     }
 
     private var isPlaying: Bool {
-        appState.effectiveTransportState?.isPlayingLike ?? false
+        transportState?.isPlayingLike ?? false
     }
 
     private var repeatMode: RepeatMode {
-        appState.effectiveRepeatMode
+        playbackState.repeatMode
     }
 
     private var shuffleEnabled: Bool {
-        appState.effectiveShuffleEnabled
+        playbackState.shuffleEnabled
+    }
+
+    private var hasCurrentTrack: Bool {
+        currentTrack != nil
     }
 
     var body: some View {
@@ -89,21 +102,16 @@ struct NowPlayingView: View {
                 .padding(.horizontal, 32)
 
                 VStack(spacing: 8) {
-                    Slider(
-                        value: Binding(
-                            get: { seekPosition },
-                            set: { seekPosition = $0 }
-                        ),
-                        in: 0...sliderDuration,
-                        onEditingChanged: { editing in
-                            isSeeking = editing
-                            if !editing {
-                                appState.performSeek(to: seekPosition)
-                            }
-                        }
-                    )
-                    .tint(dominantColor)
-                    .disabled(currentTrack == nil)
+                Slider(
+                    value: Binding(
+                        get: { seekPosition },
+                        set: { seekPosition = $0 }
+                    ),
+                    in: 0...sliderDuration,
+                    onEditingChanged: handleSeekEditingChanged
+                )
+                .tint(dominantColor)
+                .disabled(!hasCurrentTrack)
 
                     HStack {
                         Text(formatTime(seekPosition))
@@ -139,7 +147,7 @@ struct NowPlayingView: View {
                     }
                     .buttonStyle(.plain)
                     .contentShape(Rectangle())
-                    .disabled(currentTrack == nil)
+                    .disabled(!hasCurrentTrack)
                     .frame(maxWidth: .infinity)
 
                     Button {
@@ -151,7 +159,7 @@ struct NowPlayingView: View {
                     }
                     .buttonStyle(.plain)
                     .contentShape(Rectangle())
-                    .disabled(currentTrack == nil)
+                    .disabled(!hasCurrentTrack)
                     .frame(maxWidth: .infinity)
 
                     Button {
@@ -163,7 +171,7 @@ struct NowPlayingView: View {
                     }
                     .buttonStyle(.plain)
                     .contentShape(Rectangle())
-                    .disabled(currentTrack == nil)
+                    .disabled(!hasCurrentTrack)
                     .frame(maxWidth: .infinity)
 
                     Button {
@@ -192,13 +200,7 @@ struct NowPlayingView: View {
                             set: { volumeValue = $0 }
                         ),
                         in: 0...100,
-                        onEditingChanged: { editing in
-                            isAdjustingVolume = editing
-                            if !editing {
-                                appState.performSetVolume(Int(volumeValue.rounded()))
-                                syncVolumeValue()
-                            }
-                        }
+                        onEditingChanged: handleVolumeEditingChanged
                     )
                     .tint(dominantColor)
 
@@ -208,6 +210,9 @@ struct NowPlayingView: View {
                 }
                 .padding(.horizontal, 32)
             }
+
+            outputPickerRow
+                .padding(.horizontal, 32)
 
             Spacer(minLength: 0)
         }
@@ -225,16 +230,8 @@ struct NowPlayingView: View {
         .onChange(of: currentTrack?.albumId) {
             updateDominantColor()
         }
-        .onChange(of: currentPosition) {
-            if !isSeeking {
-                syncSeekPosition()
-            }
-        }
-        .onChange(of: currentVolume) {
-            if !isAdjustingVolume {
-                syncVolumeValue()
-            }
-        }
+        .onChange(of: currentPosition, handleCurrentPositionChange)
+        .onChange(of: currentVolume, handleCurrentVolumeChange)
         .onChange(of: volumeValue) {
             if isAdjustingVolume {
                 appState.performSetVolume(Int(volumeValue.rounded()))
@@ -256,16 +253,8 @@ struct NowPlayingView: View {
         .onChange(of: currentTrack?.id) {
             syncSeekPosition()
         }
-        .onChange(of: currentPosition) {
-            if !isSeeking {
-                syncSeekPosition()
-            }
-        }
-        .onChange(of: currentVolume) {
-            if !isAdjustingVolume {
-                syncVolumeValue()
-            }
-        }
+        .onChange(of: currentPosition, handleCurrentPositionChange)
+        .onChange(of: currentVolume, handleCurrentVolumeChange)
         .onChange(of: volumeValue) {
             if isAdjustingVolume {
                 appState.performSetVolume(Int(volumeValue.rounded()))
@@ -273,6 +262,47 @@ struct NowPlayingView: View {
         }
         #endif
     }
+
+    #if os(iOS)
+    @ViewBuilder
+    private var outputPickerRow: some View {
+        let isLocal = appState.isControllingLocalNode
+        HStack(spacing: 12) {
+            Image(systemName: isLocal ? "headphones" : "airplayaudio")
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(.white.opacity(0.6))
+
+            Menu {
+                OutputPickerMenuContent()
+            } label: {
+                Text(outputName)
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(.white.opacity(0.8))
+            }
+            .menuStyle(.borderlessButton)
+
+            Spacer()
+
+            Circle()
+                .fill(.white.opacity(0.3))
+                .frame(width: 6, height: 6)
+        }
+    }
+
+    private var outputName: String {
+        if appState.isControllingLocalNode {
+            return UIDevice.current.name
+        }
+        if let nodeId = appState.controlledNodeId,
+           let node = appState.client?.state?.nodes.first(where: { $0.id == nodeId }) {
+            return node.name
+        }
+        if let node = appState.client?.state?.nodes.first(where: \.connected) {
+            return node.name
+        }
+        return "No Output"
+    }
+    #endif
 
     #if os(macOS)
     private var artworkColumn: some View {
@@ -343,14 +373,9 @@ struct NowPlayingView: View {
                     set: { seekPosition = $0 }
                 ),
                 in: 0...sliderDuration,
-                onEditingChanged: { editing in
-                    isSeeking = editing
-                    if !editing {
-                        appState.performSeek(to: seekPosition)
-                    }
-                }
+                onEditingChanged: handleSeekEditingChanged
             )
-            .disabled(currentTrack == nil)
+            .disabled(!hasCurrentTrack)
 
             HStack {
                 Text(formatTime(seekPosition))
@@ -371,7 +396,7 @@ struct NowPlayingView: View {
                     .font(.title2)
             }
             .buttonStyle(.plain)
-            .disabled(currentTrack == nil)
+            .disabled(!hasCurrentTrack)
 
             Button {
                 togglePlayback()
@@ -380,7 +405,7 @@ struct NowPlayingView: View {
                     .font(.system(size: 52))
             }
             .buttonStyle(.plain)
-            .disabled(currentTrack == nil)
+            .disabled(!hasCurrentTrack)
 
             Button {
                 appState.performNext()
@@ -389,7 +414,7 @@ struct NowPlayingView: View {
                     .font(.title2)
             }
             .buttonStyle(.plain)
-            .disabled(currentTrack == nil)
+            .disabled(!hasCurrentTrack)
         }
         .foregroundStyle(.primary)
     }
@@ -420,6 +445,18 @@ struct NowPlayingView: View {
 
             Spacer()
 
+            Menu {
+                OutputPickerMenuContent()
+            } label: {
+                Image(systemName: appState.isControllingLocalNode ? "headphones" : "airplayaudio")
+                    .font(.headline)
+                    .foregroundStyle(.secondary)
+                    .frame(width: 36, height: 36)
+                    .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 10))
+            }
+            .menuStyle(.borderlessButton)
+            .buttonStyle(.plain)
+
             HStack(spacing: 8) {
                 Image(systemName: "speaker.fill")
                     .foregroundStyle(.secondary)
@@ -430,13 +467,7 @@ struct NowPlayingView: View {
                         set: { volumeValue = $0 }
                     ),
                     in: 0...100,
-                    onEditingChanged: { editing in
-                        isAdjustingVolume = editing
-                        if !editing {
-                            appState.performSetVolume(Int(volumeValue.rounded()))
-                            syncVolumeValue()
-                        }
-                    }
+                    onEditingChanged: handleVolumeEditingChanged
                 )
                 .frame(width: 120)
 
@@ -448,7 +479,7 @@ struct NowPlayingView: View {
     #endif
 
     private var sliderDuration: Double {
-        max(currentTrack?.durationSecs ?? 0, 1)
+        max(appState.effectiveDurationSecs, playbackState.currentTrack?.durationSecs ?? 0, 1)
     }
 
     private var nextRepeatMode: RepeatMode {
@@ -553,6 +584,39 @@ struct NowPlayingView: View {
             appState.performPause()
         } else {
             appState.performPlay()
+        }
+    }
+
+    private func handleSeekEditingChanged(_ isEditing: Bool) {
+        isSeeking = isEditing
+        if !isEditing {
+            pendingSeekTarget = seekPosition
+            appState.performSeek(to: seekPosition)
+        }
+    }
+
+    private func handleVolumeEditingChanged(_ isEditing: Bool) {
+        isAdjustingVolume = isEditing
+        if !isEditing {
+            appState.performSetVolume(Int(volumeValue.rounded()))
+            syncVolumeValue()
+        }
+    }
+
+    private func handleCurrentPositionChange() {
+        if let target = pendingSeekTarget {
+            if abs(currentPosition - target) < 2.0 {
+                pendingSeekTarget = nil
+                seekPosition = min(currentPosition, sliderDuration)
+            }
+        } else if !isSeeking {
+            syncSeekPosition()
+        }
+    }
+
+    private func handleCurrentVolumeChange() {
+        if !isAdjustingVolume {
+            syncVolumeValue()
         }
     }
 

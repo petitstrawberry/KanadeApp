@@ -4,44 +4,118 @@ import KanadeKit
 struct NodesView: View {
     @Environment(AppState.self) private var appState
 
-    private var client: KanadeClient? { appState.client }
-    private var nodes: [Node] { client?.state?.nodes ?? [] }
-    private var selectedNodeId: String? { client?.state?.selectedNodeId }
-    private var currentTrack: Track? {
-        guard let state = client?.state,
-              let currentIndex = state.currentIndex,
-              state.queue.indices.contains(currentIndex) else {
-            return nil
-        }
-
-        return state.queue[currentIndex]
-    }
+    private var remoteNodes: [Node] { appState.remoteNodes }
 
     var body: some View {
         List {
-            if nodes.isEmpty {
+            Section {
+                Button {
+                    if appState.localPlayback != nil {
+                        appState.controlTarget = .local
+                    } else {
+                        appState.switchToLocal(
+                            tracks: appState.effectiveQueue,
+                            index: appState.effectiveCurrentIndex ?? 0,
+                            positionSecs: appState.effectiveTransportState?.positionSecs
+                        )
+                    }
+                } label: {
+                    localDeviceRow
+                }
+                .buttonStyle(.plain)
+                .listRowBackground(isLocalSelected ? Color.accentColor.opacity(0.14) : Color.clear)
+            }
+
+            if remoteNodes.isEmpty {
                 ContentUnavailableView(
-                    "No Nodes Available",
+                    "No Remote Nodes",
                     systemImage: "speaker.slash",
-                    description: Text("Connect to a server to discover output nodes and rooms.")
+                    description: Text("Connect to a server to discover output nodes.")
                 )
             } else {
-                ForEach(nodes) { node in
-                    Button {
-                        appState.performSelectNode(node.id)
-                    } label: {
-                        nodeRow(node)
+                Section("Remote Nodes") {
+                    ForEach(remoteNodes) { node in
+                        let isLocalSession = node.nodeType == .local
+                        Button {
+                            appState.performSelectNode(node.id)
+                        } label: {
+                            nodeRow(node)
+                                .foregroundStyle(isLocalSession ? .secondary : .primary)
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(isLocalSession)
+                        .listRowBackground(isSelected(node) ? Color.accentColor.opacity(0.14) : Color.clear)
+                        .contextMenu {
+                            Button {
+                                appState.switchToRemote(nodeId: node.id)
+                            } label: {
+                                Label("Transfer Playback Here", systemImage: "arrow.triangle.2.circlepath")
+                            }
+                        }
                     }
-                    .buttonStyle(.plain)
-                    .listRowBackground(isSelected(node) ? Color.accentColor.opacity(0.14) : Color.clear)
                 }
             }
         }
-        .navigationTitle("Nodes")
+        .navigationTitle("Output")
+    }
+
+    @ViewBuilder
+    private var localDeviceRow: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Circle()
+                .fill(isLocalSelected ? Color.accentColor : Color.secondary.opacity(0.4))
+                .frame(width: 12, height: 12)
+                .padding(.top, 5)
+
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 8) {
+                    Image(systemName: "headphones")
+                        .font(.headline)
+                        .foregroundStyle(isLocalSelected ? Color.accentColor : .primary)
+                    Text(localDeviceName)
+                        .font(.headline)
+                        .foregroundStyle(isLocalSelected ? Color.accentColor : .primary)
+                    if isLocalSelected {
+                        Text("Active")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(Color.accentColor, in: Capsule())
+                    }
+                }
+
+                HStack(spacing: 10) {
+                    statusBadge(
+                        title: localNode.map { playbackStatusText($0.status) } ?? (appState.localPlayback != nil ? "Starting" : "Idle"),
+                        tint: localNode.map { playbackStatusColor($0.status) } ?? (isLocalSelected ? .accentColor : .secondary)
+                    )
+                    if let track = localCurrentTrack {
+                        Text(track.title ?? "Untitled")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                }
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(.vertical, 6)
+        .contentShape(Rectangle())
+    }
+
+    private var localDeviceName: String {
+#if os(iOS)
+        UIDevice.current.name
+#else
+        Host.current().localizedName ?? "This Mac"
+#endif
     }
 
     @ViewBuilder
     private func nodeRow(_ node: Node) -> some View {
+        let currentTrack = currentTrack(for: node)
         HStack(alignment: .top, spacing: 12) {
             Circle()
                 .fill(node.connected ? Color.green : Color.red)
@@ -92,7 +166,34 @@ struct NodesView: View {
     }
 
     private func isSelected(_ node: Node) -> Bool {
-        selectedNodeId == node.id
+        appState.controlledNodeId == node.id
+    }
+
+    private var isLocalSelected: Bool {
+        appState.isControllingLocalNode
+    }
+
+    private var localNode: Node? {
+        guard let localNodeId = appState.localNodeId else { return nil }
+        return appState.client?.state?.nodes.first(where: { $0.id == localNodeId })
+    }
+
+    private var localCurrentTrack: Track? {
+        if isLocalSelected {
+            return appState.effectiveCurrentTrack
+        }
+        guard let localNode else { return nil }
+        return currentTrack(for: localNode)
+    }
+
+    private func currentTrack(for node: Node) -> Track? {
+        guard let queue = node.queue,
+              let currentIndex = node.currentIndex,
+              queue.indices.contains(currentIndex) else {
+            return nil
+        }
+
+        return queue[currentIndex]
     }
 
     private func formatTime(_ seconds: Double) -> String {

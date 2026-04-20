@@ -3,6 +3,7 @@ import SwiftUI
 @main
 struct KanadeApp: App {
     @State private var appState = AppState()
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some Scene {
         WindowGroup {
@@ -10,6 +11,11 @@ struct KanadeApp: App {
                 .environment(appState)
                 .task {
                     appState.startupConnectIfNeeded()
+                }
+                .onChange(of: scenePhase) { _, newPhase in
+                    guard newPhase == .active else { return }
+                    guard appState.hasSavedConnectionSettings, !appState.isConnected else { return }
+                    appState.retryConnection()
                 }
         }
         #if os(macOS)
