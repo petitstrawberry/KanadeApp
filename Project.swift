@@ -4,7 +4,8 @@ let project = Project(
     name: "KanadeApp",
     organizationName: "petitstrawberry",
     packages: [
-        .package(path: "KanadeKit"),
+        .package(url: "https://github.com/petitstrawberry/KanadeKit.git", from: "0.1.0"),
+        .package(url: "https://github.com/vtourraine/AcknowList.git", from: "3.0.0"),
     ],
     targets: [
         Target(
@@ -34,15 +35,26 @@ let project = Project(
             ),
             sources: ["KanadeApp/Sources/**"],
             resources: ["KanadeApp/Resources/**"],
+            scripts: [
+                .post(
+                    script: """
+                    cp "${SRCROOT}/.package.resolved" "${BUILT_PRODUCTS_DIR}/${PRODUCT_NAME}.app/Package.resolved"
+                    """,
+                    name: "Copy Package.resolved",
+                    basedOnDependencyAnalysis: false
+                ),
+            ],
             dependencies: [
                 .package(product: "KanadeKit"),
+                .package(product: "AcknowList"),
             ],
             settings: .settings(
                 base: [
                     "INFOPLIST_KEY_CFBundle_DISPLAY_NAME": "Kanade",
                     "PRODUCT_DISPLAY_NAME": "Kanade",
                 ]
-            )
+            ),
+            additionalFiles: [".package.resolved"],
         ),
         Target(
             name: "KanadeAppMac",
@@ -65,15 +77,26 @@ let project = Project(
             sources: ["KanadeApp/Sources/**"],
             resources: ["KanadeApp/Resources/**"],
             entitlements: "KanadeApp/Config/KanadeAppMac.entitlements",
+            scripts: [
+                .post(
+                    script: """
+                    cp "${SRCROOT}/.package.resolved" "${BUILT_PRODUCTS_DIR}/${PRODUCT_NAME}.app/Contents/Resources/Package.resolved"
+                    """,
+                    name: "Copy Package.resolved",
+                    basedOnDependencyAnalysis: false
+                ),
+            ],
             dependencies: [
                 .package(product: "KanadeKit"),
+                .package(product: "AcknowList"),
             ],
             settings: .settings(
                 base: [
-                    "INFOPLIST_KEY_CFBundleDisplayName": "Kanade",
+                    "INFOPLIST_KEY_CFBundle_DISPLAY_NAME": "Kanade",
                     "PRODUCT_DISPLAY_NAME": "Kanade",
                 ]
-            )
+            ),
+            additionalFiles: [".package.resolved"],
         ),
         Target(
             name: "KanadeAppTests",

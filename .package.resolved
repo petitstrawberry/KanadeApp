@@ -1,6 +1,42 @@
 {
-  "originHash" : "40c60e1aff46b61e6a7063ab03cf4547b9b4e9a0dfbb1ba4585c67bfc4ad8dcd",
+  "originHash" : "f12468f1fbead4d7a8c9c6621604082a4a020398575846ce92880aaa42fe273c",
   "pins" : [
+    {
+      "identity" : "acknowlist",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/vtourraine/AcknowList.git",
+      "state" : {
+        "revision" : "b4bcba19d38e196c3004f3f067ac10e3d4bf62c0",
+        "version" : "3.4.2"
+      }
+    },
+    {
+      "identity" : "flac-binary-xcframework",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/sbooth/flac-binary-xcframework",
+      "state" : {
+        "revision" : "9005dc2cd455765fb6824eb215c9703429bbe8ff",
+        "version" : "0.2.0"
+      }
+    },
+    {
+      "identity" : "kanadekit",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/petitstrawberry/KanadeKit.git",
+      "state" : {
+        "revision" : "6f85a6e8381dbcbcc6c3b04ac465cbeca03a67f3",
+        "version" : "0.1.0"
+      }
+    },
+    {
+      "identity" : "ogg-binary-xcframework",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/sbooth/ogg-binary-xcframework",
+      "state" : {
+        "revision" : "48cbf24e7fb5d329b1f5e24cd2e5b048585ff770",
+        "version" : "0.1.3"
+      }
+    },
     {
       "identity" : "starscream",
       "kind" : "remoteSourceControl",

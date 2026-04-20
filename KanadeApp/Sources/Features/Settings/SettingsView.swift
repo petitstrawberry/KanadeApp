@@ -1,3 +1,4 @@
+import AcknowList
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -175,6 +176,9 @@ struct SettingsView: View {
                 }
                 LabeledContent("Version") {
                     Text("1.0.0")
+                }
+                NavigationLink("Acknowledgements") {
+                    AcknowListSwiftUIView()
                 }
             }
         }
