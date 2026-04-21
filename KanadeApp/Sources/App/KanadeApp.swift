@@ -14,8 +14,10 @@ struct KanadeApp: App {
                 }
                 .onChange(of: scenePhase) { _, newPhase in
                     guard newPhase == .active else { return }
-                    guard appState.hasSavedConnectionSettings, !appState.isConnected else { return }
-                    appState.retryConnection()
+                    guard appState.hasSavedConnectionSettings else { return }
+                    if appState.connectionRequiresManualRetry {
+                        appState.retryConnection()
+                    }
                 }
         }
         #if os(macOS)

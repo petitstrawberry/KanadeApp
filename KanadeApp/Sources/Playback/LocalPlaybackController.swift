@@ -92,6 +92,48 @@ final class LocalPlaybackController {
         self.mediaClient = mediaClient
     }
 
+    func reloadCurrentTrack() {
+        guard let currentTrack, let mediaClient else { return }
+        let position = transportState.positionSecs
+        let wasPlaying = transportPlaybackStatus == .playing || playbackIntentIsPlaying
+        let trackID = currentTrack.id
+
+        currentTrackLoadTask?.cancel()
+        preloadTask?.cancel()
+        didPreloadCurrentNext = false
+
+        currentTrackLoadTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            do {
+                let signedURL = try await mediaClient.signedHLSURL(trackId: trackID)
+                guard !Task.isCancelled else { return }
+                guard self.currentTrack?.id == trackID else { return }
+
+                if case .idle = self.engine.state.status {
+                    self.engine.load(signedURL: signedURL, autoplay: wasPlaying)
+                    if !wasPlaying {
+                        self.engine.seek(to: position)
+                    }
+                } else if case .stopped = self.engine.state.status {
+                    self.engine.load(signedURL: signedURL, autoplay: wasPlaying)
+                    if !wasPlaying {
+                        self.engine.seek(to: position)
+                    }
+                } else if case .error = self.engine.state.status {
+                    self.engine.load(signedURL: signedURL, autoplay: wasPlaying)
+                    if !wasPlaying {
+                        self.engine.seek(to: position)
+                    }
+                } else {
+                    self.engine.replaceCurrentItem(signedURL: signedURL, seekTo: position)
+                }
+            } catch {
+                guard !Task.isCancelled else { return }
+                guard self.currentTrack?.id == trackID else { return }
+            }
+        }
+    }
+
     deinit {
         updateTimer?.cancel()
         currentTrackLoadTask?.cancel()

@@ -854,6 +854,18 @@ extension AppState: KanadeClientDelegate {
         }
     }
 
+    nonisolated func client(_ client: KanadeClient, didReceiveMediaAuthKeyId keyId: String?) {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            if let signer = self.mediaClient?.mediaAuthSignerReference() {
+                await signer.clear()
+            }
+            if self.controlTarget == .local {
+                self.localPlayback?.reloadCurrentTrack()
+            }
+        }
+    }
+
     private func prefetchSignedURLs(for state: PlaybackState) {
         guard controlTarget == .local, let signer = mediaClient?.mediaAuthSignerReference() else { return }
         let tracks = state.queue

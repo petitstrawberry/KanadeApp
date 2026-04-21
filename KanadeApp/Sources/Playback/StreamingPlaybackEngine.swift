@@ -75,6 +75,43 @@ final class StreamingPlaybackEngine {
         observeItemFinished(item)
     }
 
+    func replaceCurrentItem(signedURL: URL, seekTo positionSecs: Double) {
+        guard let queuePlayer else {
+            load(signedURL: signedURL, autoplay: true)
+            return
+        }
+
+        let savedVolume = state.volume
+        let wasPlaying: Bool
+        if case .playing = state.status {
+            wasPlaying = true
+        } else {
+            wasPlaying = false
+        }
+
+        let newItem = AVPlayerItem(url: signedURL)
+        queuePlayer.removeAllItems()
+        queuePlayer.insert(newItem, after: nil)
+
+        currentPlayerItem = newItem
+        hasNextPreloaded = false
+        queuePlayer.volume = Float(savedVolume) / 100.0
+
+        observeItem(newItem)
+
+        let target = CMTime(seconds: max(positionSecs, 0), preferredTimescale: 600)
+        queuePlayer.seek(to: target, toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] finished in
+            guard finished else { return }
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.state.positionSecs = max(positionSecs, 0)
+                if wasPlaying {
+                    queuePlayer.play()
+                }
+            }
+        }
+    }
+
     func play() {
         guard let queuePlayer, currentPlayerItem != nil else {
             updateState(.stopped)
@@ -185,6 +222,14 @@ final class StreamingPlaybackEngine {
                 // If transitionToItem already advanced to a new item, this
                 // notification is for the old item — nothing to do.
                 guard item === self.currentPlayerItem else { return }
+
+                // Gapless: if a next item was preloaded, AVQueuePlayer will
+                // auto-advance currentItem shortly. Treat this as a pending
+                // transition instead of immediate playback end.
+                if self.hasNextPreloaded {
+                    self.transitionedItemIDsAwaitingNaturalEnd.insert(itemID)
+                    return
+                }
 
                 self.state.positionSecs = self.resolvedDurationSecs(fallback: self.state.positionSecs)
                 self.updateState(.stopped)
