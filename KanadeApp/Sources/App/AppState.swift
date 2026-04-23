@@ -63,8 +63,7 @@ final class AppState {
     @ObservationIgnored private var localSessionRegistrationPending = false
     @ObservationIgnored private var isLocalPlaybackTearingDown = false
     @ObservationIgnored private var lastSentLocalSessionUpdateKey: LocalSessionUpdateKey?
-    @ObservationIgnored private var connectionStateTimer: Timer?
-    @ObservationIgnored private var connectionMonitorToken = UUID()
+    @ObservationIgnored private var connectionMonitorTask: Task<Void, Never>?
     private var lastPrefetchQueueKey: String?
 
     var showRemoteUnavailablePrompt = false
@@ -379,23 +378,17 @@ final class AppState {
 
     private func startConnectionStateMonitoring() {
         stopConnectionStateMonitoring()
-        let token = UUID()
-        connectionMonitorToken = token
-        let timer = Timer(timeInterval: Self.connectionPollInterval, repeats: true) { [weak self] _ in
-            guard let self else { return }
-            MainActor.assumeIsolated {
-                guard self.connectionMonitorToken == token else { return }
-                self.refreshConnectionSnapshot()
+        connectionMonitorTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                self?.refreshConnectionSnapshot()
+                try? await Task.sleep(for: .seconds(Self.connectionPollInterval))
             }
         }
-        RunLoop.main.add(timer, forMode: .common)
-        connectionStateTimer = timer
     }
 
     private func stopConnectionStateMonitoring() {
-        connectionMonitorToken = UUID()
-        connectionStateTimer?.invalidate()
-        connectionStateTimer = nil
+        connectionMonitorTask?.cancel()
+        connectionMonitorTask = nil
     }
 
     func performPlay() {
