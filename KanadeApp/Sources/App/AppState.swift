@@ -378,7 +378,9 @@ final class AppState {
     private func startConnectionStateMonitoring() {
         stopConnectionStateMonitoring()
         connectionStateTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
-            self?.refreshConnectionSnapshot()
+            Task { @MainActor [weak self] in
+                self?.refreshConnectionSnapshot()
+            }
         }
     }
 
