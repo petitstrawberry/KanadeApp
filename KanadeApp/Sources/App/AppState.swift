@@ -10,6 +10,11 @@ enum ControlTarget: String, Codable {
 @MainActor
 @Observable
 final class AppState {
+    private struct ConnectionSnapshot: Equatable {
+        var isConnected = false
+        var reconnectExhausted = false
+    }
+
     struct LocalSessionUpdateKey: Equatable {
         let trackIDs: [String]
         let currentIndex: Int?
@@ -49,14 +54,17 @@ final class AppState {
     @ObservationIgnored private static let useTLSKey = "kanade.useTLS"
     @ObservationIgnored private static let allowSelfSignedKey = "kanade.allowSelfSigned"
     @ObservationIgnored private static let trustedCADataKey = "kanade.trustedCAData"
+    @ObservationIgnored private static let fallbackConnectionPollInterval: TimeInterval = 5.0
 
     @ObservationIgnored private let defaults = UserDefaults.standard
     @ObservationIgnored private var didAttemptStartupConnect = false
     @ObservationIgnored private var isResolvingControlledNodeId = false
+    @ObservationIgnored private var manuallyDisconnectedClientID: ObjectIdentifier?
     @ObservationIgnored private var localSessionRegistered = false
     @ObservationIgnored private var localSessionRegistrationPending = false
     @ObservationIgnored private var isLocalPlaybackTearingDown = false
     @ObservationIgnored private var lastSentLocalSessionUpdateKey: LocalSessionUpdateKey?
+    @ObservationIgnored private var connectionMonitorTask: Task<Void, Never>?
     private var lastPrefetchQueueKey: String?
 
     var showRemoteUnavailablePrompt = false
@@ -94,6 +102,7 @@ final class AppState {
     var lastKnownCurrentIndex: Int?
     var lastKnownRepeatMode: RepeatMode = .off
     var lastKnownShuffleEnabled = false
+    private var connectionSnapshot = ConnectionSnapshot()
 
     var serverAddress: String {
         didSet { persistConnectionSettings() }
@@ -138,14 +147,14 @@ final class AppState {
         return newId
     }
 
-    var isConnected: Bool { client?.connected ?? false }
+    var isConnected: Bool { connectionSnapshot.isConnected }
 
     var isRetryingConnection: Bool {
-        client != nil && !isConnected && !(client?.reconnectExhausted ?? false)
+        client != nil && !isConnected && !connectionSnapshot.reconnectExhausted
     }
 
     var connectionRequiresManualRetry: Bool {
-        client != nil && !isConnected && (client?.reconnectExhausted ?? false)
+        client != nil && !isConnected && connectionSnapshot.reconnectExhausted
     }
 
     var hasSavedConnectionSettings: Bool {
@@ -294,6 +303,7 @@ final class AppState {
         }
 
         defaults.removeObject(forKey: "kanade.controlledNodeId")
+        refreshConnectionSnapshot()
     }
 
     func startupConnectIfNeeded() {
@@ -319,6 +329,8 @@ final class AppState {
 
         newClient.delegate = self
         client = newClient
+        refreshConnectionSnapshot()
+        startConnectionStateMonitoring()
         let newMediaClient = MediaClient(host: serverAddress, port: serverPort, useTLS: useTLS, tlsConfiguration: tlsConfig)
         let signer = MediaAuthSigner { [weak newClient] paths in
             guard let newClient else {
@@ -342,14 +354,89 @@ final class AppState {
     }
 
     func disconnect() {
-        client?.disconnect()
+        stopConnectionStateMonitoring()
+        if let client {
+            manuallyDisconnectedClientID = ObjectIdentifier(client)
+            client.disconnect()
+        }
         client = nil
+        refreshConnectionSnapshot()
         mediaClient?.clearMediaAuthSigner()
         mediaClient = nil
         localPlayback?.updateMediaClient(nil)
         localNodeId = nil
         if controlTarget == .local {
             setResolvedControlledNodeId(nil)
+        }
+    }
+
+    private func refreshConnectionSnapshot() {
+        let next = ConnectionSnapshot(
+            isConnected: client?.connected ?? false,
+            reconnectExhausted: client?.reconnectExhausted ?? false
+        )
+        if connectionSnapshot != next {
+            connectionSnapshot = next
+        }
+    }
+
+    private func startConnectionStateMonitoring() {
+        stopConnectionStateMonitoring()
+        connectionMonitorTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                do {
+                    try await Task.sleep(for: .seconds(Self.fallbackConnectionPollInterval))
+                } catch is CancellationError {
+                    break
+                } catch {
+                    break
+                }
+                guard !Task.isCancelled else { break }
+                self?.refreshConnectionSnapshot()
+            }
+        }
+    }
+
+    private func stopConnectionStateMonitoring() {
+        connectionMonitorTask?.cancel()
+        connectionMonitorTask = nil
+    }
+
+    private func autoSwitchToLocalOnUnexpectedDisconnect(_ disconnectedClient: KanadeClient) {
+        guard controlTarget == .remote, localPlayback == nil else { return }
+        let fallbackQueue = lastKnownQueue
+        guard !fallbackQueue.isEmpty else { return }
+        let maxIndex = fallbackQueue.count - 1
+
+        let controlledRemoteNode: Node? = {
+            if let controlledNodeId {
+                return disconnectedClient.state?.nodes.first(where: { $0.id == controlledNodeId })
+            }
+            if let selectedNodeId = disconnectedClient.state?.selectedNodeId {
+                return disconnectedClient.state?.nodes.first(where: { $0.id == selectedNodeId })
+            }
+            return nil
+        }()
+
+        let remoteStatus = controlledRemoteNode?.status
+        let shouldResume = remoteStatus == .playing || remoteStatus == .loading
+        let positionSecs = controlledRemoteNode?.positionSecs
+        let fallbackIndex: Int
+        if let lastKnownCurrentIndex {
+            fallbackIndex = min(max(lastKnownCurrentIndex, 0), maxIndex)
+        } else {
+            fallbackIndex = 0
+        }
+
+        startLocalPlayback()
+        localPlayback?.importPlaybackState(tracks: fallbackQueue, index: fallbackIndex, positionSecs: positionSecs)
+        localPlayback?.setRepeat(lastKnownRepeatMode)
+        localPlayback?.setShuffle(lastKnownShuffleEnabled)
+        controlTarget = .local
+        showRemoteUnavailablePrompt = false
+
+        if shouldResume {
+            localPlayback?.play()
         }
     }
 
@@ -775,6 +862,7 @@ extension AppState: KanadeClientDelegate {
     nonisolated func clientDidConnect(_ client: KanadeClient) {
         Task { @MainActor [weak self] in
             guard let self else { return }
+            self.refreshConnectionSnapshot()
             self.localSessionRegistered = false
             self.localSessionRegistrationPending = false
             self.lastSentLocalSessionUpdateKey = nil
@@ -790,15 +878,25 @@ extension AppState: KanadeClientDelegate {
 
     nonisolated func clientDidDisconnect(_ client: KanadeClient, error: (any Error)?) {
         Task { @MainActor [weak self] in
-            self?.localSessionRegistered = false
-            self?.localSessionRegistrationPending = false
-            self?.lastSentLocalSessionUpdateKey = nil
+            guard let self else { return }
+            self.refreshConnectionSnapshot()
+            let wasManualDisconnect = self.manuallyDisconnectedClientID == ObjectIdentifier(client)
+            if wasManualDisconnect {
+                self.manuallyDisconnectedClientID = nil
+            }
+            if !wasManualDisconnect {
+                self.autoSwitchToLocalOnUnexpectedDisconnect(client)
+            }
+            self.localSessionRegistered = false
+            self.localSessionRegistrationPending = false
+            self.lastSentLocalSessionUpdateKey = nil
         }
     }
 
     nonisolated func client(_ client: KanadeClient, didUpdateState state: PlaybackState) {
         Task { @MainActor [weak self] in
             guard let self else { return }
+            self.refreshConnectionSnapshot()
 
             let matchedLocalNode = state.nodes.first(where: { $0.deviceId == self.deviceId })
                 ?? state.nodes.first(where: { $0.nodeType == .local && $0.name == self.currentDeviceName })
