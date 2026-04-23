@@ -404,7 +404,9 @@ final class AppState {
 
     private func autoSwitchToLocalOnUnexpectedDisconnect(_ disconnectedClient: KanadeClient) {
         guard controlTarget == .remote, localPlayback == nil else { return }
-        guard !lastKnownQueue.isEmpty else { return }
+        let fallbackQueue = lastKnownQueue
+        let maxIndex = fallbackQueue.count - 1
+        guard maxIndex >= 0 else { return }
 
         let controlledRemoteNode: Node? = {
             if let controlledNodeId {
@@ -416,12 +418,13 @@ final class AppState {
             return nil
         }()
 
-        let shouldResume = controlledRemoteNode.map { $0.status == .playing || $0.status == .loading } ?? false
+        let remoteStatus = controlledRemoteNode?.status
+        let shouldResume = remoteStatus == .playing || remoteStatus == .loading
         let positionSecs = controlledRemoteNode?.positionSecs
-        let fallbackIndex = max(0, min(lastKnownCurrentIndex ?? 0, lastKnownQueue.count - 1))
+        let fallbackIndex = max(0, min(lastKnownCurrentIndex ?? 0, maxIndex))
 
         startLocalPlayback()
-        localPlayback?.importPlaybackState(tracks: lastKnownQueue, index: fallbackIndex, positionSecs: positionSecs)
+        localPlayback?.importPlaybackState(tracks: fallbackQueue, index: fallbackIndex, positionSecs: positionSecs)
         localPlayback?.setRepeat(lastKnownRepeatMode)
         localPlayback?.setShuffle(lastKnownShuffleEnabled)
         controlTarget = .local
