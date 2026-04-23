@@ -380,12 +380,12 @@ final class AppState {
         stopConnectionStateMonitoring()
         connectionMonitorTask = Task { @MainActor [weak self] in
             while !Task.isCancelled {
-                self?.refreshConnectionSnapshot()
                 do {
                     try await Task.sleep(for: .seconds(Self.connectionPollInterval))
                 } catch {
                     break
                 }
+                self?.refreshConnectionSnapshot()
             }
         }
     }
