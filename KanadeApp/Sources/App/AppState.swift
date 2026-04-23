@@ -54,6 +54,7 @@ final class AppState {
     @ObservationIgnored private static let useTLSKey = "kanade.useTLS"
     @ObservationIgnored private static let allowSelfSignedKey = "kanade.allowSelfSigned"
     @ObservationIgnored private static let trustedCADataKey = "kanade.trustedCAData"
+    @ObservationIgnored private static let connectionMonitoringInterval: TimeInterval = 2.0
 
     @ObservationIgnored private let defaults = UserDefaults.standard
     @ObservationIgnored private var didAttemptStartupConnect = false
@@ -380,10 +381,11 @@ final class AppState {
         stopConnectionStateMonitoring()
         let token = UUID()
         connectionMonitorToken = token
-        let timer = Timer(timeInterval: 2.0, repeats: true) { [weak self] _ in
+        let timer = Timer(timeInterval: Self.connectionMonitoringInterval, repeats: true) { [weak self] _ in
+            guard let self else { return }
             Task { @MainActor in
-                guard self?.connectionMonitorToken == token else { return }
-                self?.refreshConnectionSnapshot()
+                guard self.connectionMonitorToken == token else { return }
+                self.refreshConnectionSnapshot()
             }
         }
         RunLoop.main.add(timer, forMode: .common)
