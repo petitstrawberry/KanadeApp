@@ -405,8 +405,8 @@ final class AppState {
     private func autoSwitchToLocalOnUnexpectedDisconnect(_ disconnectedClient: KanadeClient) {
         guard controlTarget == .remote, localPlayback == nil else { return }
         let fallbackQueue = lastKnownQueue
+        guard !fallbackQueue.isEmpty else { return }
         let maxIndex = fallbackQueue.count - 1
-        guard maxIndex >= 0 else { return }
 
         let controlledRemoteNode: Node? = {
             if let controlledNodeId {
@@ -421,7 +421,8 @@ final class AppState {
         let remoteStatus = controlledRemoteNode?.status
         let shouldResume = remoteStatus == .playing || remoteStatus == .loading
         let positionSecs = controlledRemoteNode?.positionSecs
-        let fallbackIndex = max(0, min(lastKnownCurrentIndex ?? 0, maxIndex))
+        let requestedIndex = lastKnownCurrentIndex ?? 0
+        let fallbackIndex = requestedIndex < 0 ? 0 : min(requestedIndex, maxIndex)
 
         startLocalPlayback()
         localPlayback?.importPlaybackState(tracks: fallbackQueue, index: fallbackIndex, positionSecs: positionSecs)
