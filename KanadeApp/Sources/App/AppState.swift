@@ -421,8 +421,12 @@ final class AppState {
         let remoteStatus = controlledRemoteNode?.status
         let shouldResume = remoteStatus == .playing || remoteStatus == .loading
         let positionSecs = controlledRemoteNode?.positionSecs
-        let requestedIndex = lastKnownCurrentIndex ?? 0
-        let fallbackIndex = requestedIndex < 0 ? 0 : min(requestedIndex, maxIndex)
+        let fallbackIndex: Int
+        if let lastKnownCurrentIndex {
+            fallbackIndex = min(max(lastKnownCurrentIndex, 0), maxIndex)
+        } else {
+            fallbackIndex = 0
+        }
 
         startLocalPlayback()
         localPlayback?.importPlaybackState(tracks: fallbackQueue, index: fallbackIndex, positionSecs: positionSecs)
