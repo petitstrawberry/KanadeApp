@@ -54,7 +54,7 @@ final class AppState {
     @ObservationIgnored private static let useTLSKey = "kanade.useTLS"
     @ObservationIgnored private static let allowSelfSignedKey = "kanade.allowSelfSigned"
     @ObservationIgnored private static let trustedCADataKey = "kanade.trustedCAData"
-    @ObservationIgnored private static let connectionPollInterval: TimeInterval = 5.0
+    @ObservationIgnored private static let fallbackConnectionPollInterval: TimeInterval = 5.0
 
     @ObservationIgnored private let defaults = UserDefaults.standard
     @ObservationIgnored private var didAttemptStartupConnect = false
@@ -381,10 +381,13 @@ final class AppState {
         connectionMonitorTask = Task { @MainActor [weak self] in
             while !Task.isCancelled {
                 do {
-                    try await Task.sleep(for: .seconds(Self.connectionPollInterval))
+                    try await Task.sleep(for: .seconds(Self.fallbackConnectionPollInterval))
+                } catch is CancellationError {
+                    break
                 } catch {
                     break
                 }
+                guard !Task.isCancelled else { break }
                 self?.refreshConnectionSnapshot()
             }
         }
