@@ -63,6 +63,7 @@ final class AppState {
     @ObservationIgnored private var isLocalPlaybackTearingDown = false
     @ObservationIgnored private var lastSentLocalSessionUpdateKey: LocalSessionUpdateKey?
     @ObservationIgnored private var connectionStateTimer: Timer?
+    @ObservationIgnored private var connectionMonitorToken = UUID()
     private var lastPrefetchQueueKey: String?
 
     var showRemoteUnavailablePrompt = false
@@ -377,8 +378,11 @@ final class AppState {
 
     private func startConnectionStateMonitoring() {
         stopConnectionStateMonitoring()
-        let timer = Timer(timeInterval: 1.0, repeats: true) { [weak self] _ in
+        let token = UUID()
+        connectionMonitorToken = token
+        let timer = Timer(timeInterval: 2.0, repeats: true) { [weak self] _ in
             Task { @MainActor in
+                guard self?.connectionMonitorToken == token else { return }
                 self?.refreshConnectionSnapshot()
             }
         }
@@ -387,6 +391,7 @@ final class AppState {
     }
 
     private func stopConnectionStateMonitoring() {
+        connectionMonitorToken = UUID()
         connectionStateTimer?.invalidate()
         connectionStateTimer = nil
     }
