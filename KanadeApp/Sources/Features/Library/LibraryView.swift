@@ -5,8 +5,6 @@ struct AlbumTile: View {
     let album: Album
     let appState: AppState?
     let mediaClient: MediaClient?
-    let isInteractionEnabled: Bool
-    let openAlbum: () -> Void
 
     @State private var isHovered = false
 
@@ -17,10 +15,6 @@ struct AlbumTile: View {
                     .aspectRatio(1, contentMode: .fit)
                     .clipShape(RoundedRectangle(cornerRadius: 12))
                     .contentShape(RoundedRectangle(cornerRadius: 12))
-                    .onTapGesture {
-                        guard isInteractionEnabled else { return }
-                        openAlbum()
-                    }
 
                 if isHovered {
                     artworkActions
@@ -35,12 +29,9 @@ struct AlbumTile: View {
                 .multilineTextAlignment(.leading)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .contentShape(Rectangle())
-                .onTapGesture {
-                    guard isInteractionEnabled else { return }
-                    openAlbum()
-                }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
         .onHover { hovering in
             isHovered = hovering
         }

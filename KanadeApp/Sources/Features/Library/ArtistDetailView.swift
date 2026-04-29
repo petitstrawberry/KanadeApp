@@ -7,38 +7,38 @@ struct ArtistDetailView: View {
     let artist: String
 
     @State private var albums: [Album] = []
-    @State private var selectedAlbum: Album?
     @State private var isLoading = false
     @State private var errorMessage: String?
 
     var body: some View {
-        Group {
-            if isLoading && albums.isEmpty {
-                ProgressView()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if let errorMessage {
+        ScrollView {
+            if let errorMessage {
                 ContentUnavailableView("Unable to Load Artist", systemImage: "exclamationmark.triangle", description: Text(errorMessage))
+                    .frame(maxWidth: .infinity, minHeight: 240)
+                    .padding()
+            } else if isLoading && albums.isEmpty {
+                ProgressView()
+                    .frame(maxWidth: .infinity, minHeight: 240)
+                    .padding()
             } else {
-                ScrollView {
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 150, maximum: 300), spacing: 16)], spacing: 16) {
-                        ForEach(albums) { album in
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 150, maximum: 300), spacing: 16)], spacing: 16) {
+                    ForEach(albums) { album in
+                        NavigationLink {
+                            AlbumDetailView(album: album)
+                        } label: {
                             AlbumTile(
                                 album: album,
                                 appState: appState,
-                                mediaClient: appState.mediaClient,
-                                isInteractionEnabled: true,
-                                openAlbum: { selectedAlbum = album }
+                                mediaClient: appState.mediaClient
                             )
                         }
+                        .buttonStyle(.plain)
                     }
-                    .padding()
                 }
+                .padding()
             }
         }
         .navigationTitle(artist)
-        .navigationDestination(item: $selectedAlbum) { album in
-            AlbumDetailView(album: album)
-        }
         .task {
             await loadAlbums()
         }

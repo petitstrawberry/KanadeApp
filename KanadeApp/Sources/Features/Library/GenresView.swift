@@ -20,7 +20,12 @@ struct GenresView: View {
                     LazyVStack(alignment: .leading, spacing: 16) {
                         VStack(spacing: 10) {
                             ForEach(genres, id: \.self) { genre in
-                                LibraryTextRow(title: genre, systemImage: LibrarySection.genres.systemImage)
+                                NavigationLink {
+                                    GenreDetailView(genre: genre)
+                                } label: {
+                                    LibraryTextRow(title: genre, systemImage: LibrarySection.genres.systemImage)
+                                }
+                                .buttonStyle(.plain)
                             }
                         }
                         .padding(.horizontal)

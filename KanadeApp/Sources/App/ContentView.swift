@@ -81,12 +81,10 @@ struct ContentView: View {
             }
             .navigationSplitViewColumnWidth(min: 180, ideal: 200)
         } detail: {
-            NavigationStack {
-                detailView
-                    .safeAreaInset(edge: .top, spacing: 0) {
-                        connectionBanner
-                    }
-            }
+            detailColumn
+                .safeAreaInset(edge: .top, spacing: 0) {
+                    connectionBanner
+                }
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 if appState.shouldShowMiniPlayer {
                     NowPlayingBar(placement: .macFloating, onActivate: { showNowPlaying = true })
@@ -98,25 +96,64 @@ struct ContentView: View {
     }
 
     @ViewBuilder
-    var detailView: some View {
+    var detailColumn: some View {
+        ZStack {
+            librarySectionStacks
+            nonLibraryDetailView
+        }
+    }
+
+    private var activeLibrarySection: LibrarySection? {
+        guard case .library(let section) = sidebarSelection else { return nil }
+        return section
+    }
+
+    @ViewBuilder
+    private var librarySectionStacks: some View {
+        let active = activeLibrarySection
+
+        NavigationStack {
+            AlbumsView()
+        }
+        .opacity(active == .albums ? 1 : 0)
+        .allowsHitTesting(active == .albums)
+
+        NavigationStack {
+            ArtistsView()
+        }
+        .opacity(active == .artists ? 1 : 0)
+        .allowsHitTesting(active == .artists)
+
+        NavigationStack {
+            GenresView()
+        }
+        .opacity(active == .genres ? 1 : 0)
+        .allowsHitTesting(active == .genres)
+
+        NavigationStack {
+            PlaylistsView()
+        }
+        .opacity(active == .playlists ? 1 : 0)
+        .allowsHitTesting(active == .playlists)
+    }
+
+    @ViewBuilder
+    private var nonLibraryDetailView: some View {
         switch sidebarSelection {
-        case .library(let section):
-            switch section {
-            case .albums:
-                AlbumsView()
-            case .artists:
-                ArtistsView()
-            case .genres:
-                GenresView()
-            case .playlists:
-                PlaylistsView()
-            }
         case .nodes:
-            NodesView()
+            NavigationStack {
+                NodesView()
+            }
         case .settings:
-            SettingsView()
+            NavigationStack {
+                SettingsView()
+            }
         case nil:
-            ContentUnavailableView("Select a section", systemImage: "sidebar.left")
+            NavigationStack {
+                ContentUnavailableView("Select a section", systemImage: "sidebar.left")
+            }
+        case .library:
+            EmptyView()
         }
     }
 

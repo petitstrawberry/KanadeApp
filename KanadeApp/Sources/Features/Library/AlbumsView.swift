@@ -7,7 +7,6 @@ struct AlbumsView: View {
     @State private var albums: [Album] = []
     @State private var isLoading = false
     @State private var errorMessage: String?
-    @State private var selectedAlbum: Album?
     @State private var showAllSongs = false
     @State private var cardMinWidth: CGFloat = 150
     @GestureState private var magnification: CGFloat = 1
@@ -27,13 +26,17 @@ struct AlbumsView: View {
                             allSongsCard
 
                             ForEach(albums) { album in
-                                AlbumTile(
-                                    album: album,
-                                    appState: appState,
-                                    mediaClient: appState.mediaClient,
-                                    isInteractionEnabled: !isPinching,
-                                    openAlbum: { selectedAlbum = album }
-                                )
+                                NavigationLink {
+                                    AlbumDetailView(album: album)
+                                } label: {
+                                    AlbumTile(
+                                        album: album,
+                                        appState: appState,
+                                        mediaClient: appState.mediaClient
+                                    )
+                                }
+                                .buttonStyle(.plain)
+                                .allowsHitTesting(!isPinching)
                             }
                         }
                         .padding(.horizontal)
@@ -43,9 +46,6 @@ struct AlbumsView: View {
             }
         }
         .navigationTitle("Albums")
-        .navigationDestination(item: $selectedAlbum) { album in
-            AlbumDetailView(album: album)
-        }
         .navigationDestination(isPresented: $showAllSongs) {
             AllSongsPlaceholderView()
         }
