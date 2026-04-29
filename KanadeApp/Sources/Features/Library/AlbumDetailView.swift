@@ -55,6 +55,7 @@ struct AlbumDetailView: View {
                 Text(album.title ?? "Album")
                     .font(.title2.weight(.bold))
                     .multilineTextAlignment(.leading)
+                    .lineLimit(2)
 
                 Text("\(tracks.count) song\(tracks.count == 1 ? "" : "s")")
                     .font(.subheadline)
