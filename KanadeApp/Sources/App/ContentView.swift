@@ -7,6 +7,9 @@ struct ContentView: View {
     @State private var showNowPlaying = false
     @State private var showNodes = false
     @State private var showSettings = false
+    #if os(macOS)
+    @State private var queueWidth: CGFloat = 280
+    #endif
 
     private var shouldShowPlayerShell: Bool {
         appState.isConnected || appState.localPlayback != nil || appState.shouldShowMiniPlayer
@@ -51,58 +54,84 @@ struct ContentView: View {
                 connectionBanner
             }
         #else
-        macContent
+        HStack(spacing: 0) {
+            macContent
+            if appState.showQueue {
+                QueueResizer(width: $queueWidth)
+                QueueView()
+                    .frame(width: queueWidth)
+                    .transition(.move(edge: .trailing))
+            }
+        }
+        .toolbar(id: "Kanade.MainToolbar") {
+            ToolbarItem(id: "toggleQueue", placement: .primaryAction) {
+                Button {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        appState.showQueue.toggle()
+                    }
+                } label: {
+                    Image(systemName: "list.bullet")
+                        .foregroundStyle(appState.showQueue ? Color.accentColor : Color.secondary)
+                }
+                .help("Toggle Queue")
+            }
+            .defaultCustomization(.visible, options: .alwaysAvailable)
+        }
         #endif
     }
 
     @ViewBuilder
     var sidebarContent: some View {
+        baseSplitView
+    }
+
+    private var baseSplitView: some View {
         NavigationSplitView {
-            List(selection: $sidebarSelection) {
-                Section("Library") {
-                    ForEach(SidebarItem.allCases.filter(\.isLibrary), id: \.self) { item in
-                        Label(item.title, systemImage: item.systemImage)
-                            .tag(item)
-                    }
-                }
-                #if os(iOS)
-                Section {
-                    NavigationLink {
-                        SearchView()
-                    } label: {
-                        Label("Search", systemImage: "magnifyingglass")
-                    }
-                }
-                #endif
-                Section {
-                    #if os(macOS)
-                    Label(SidebarItem.queue.title, systemImage: SidebarItem.queue.systemImage)
-                        .tag(SidebarItem.queue)
-                    #endif
-                    Label(SidebarItem.nodes.title, systemImage: SidebarItem.nodes.systemImage)
-                        .tag(SidebarItem.nodes)
-                    Label(SidebarItem.settings.title, systemImage: SidebarItem.settings.systemImage)
-                        .tag(SidebarItem.settings)
-                }
-            }
-            .navigationSplitViewColumnWidth(min: 180, ideal: 200)
+            sidebarList
         } detail: {
             detailColumn
                 .safeAreaInset(edge: .top, spacing: 0) {
                     connectionBanner
                 }
-            .safeAreaInset(edge: .bottom, spacing: 0) {
-                if appState.shouldShowMiniPlayer {
-                    NowPlayingBar(placement: .macFloating, onActivate: {
-                        #if os(iOS)
-                        showNowPlaying = true
-                        #endif
-                    })
-                        .padding(.horizontal, 20)
-                        .padding(.bottom, 12)
+                .safeAreaInset(edge: .bottom, spacing: 0) {
+                    if appState.shouldShowMiniPlayer {
+                        NowPlayingBar(placement: .macFloating, onActivate: {
+                            #if os(iOS)
+                            showNowPlaying = true
+                            #endif
+                        })
+                            .padding(.horizontal, 20)
+                            .padding(.bottom, 12)
+                    }
+                }
+        }
+    }
+
+    private var sidebarList: some View {
+        List(selection: $sidebarSelection) {
+            Section("Library") {
+                ForEach(SidebarItem.allCases.filter(\.isLibrary), id: \.self) { item in
+                    Label(item.title, systemImage: item.systemImage)
+                        .tag(item)
                 }
             }
+            #if os(iOS)
+            Section {
+                NavigationLink {
+                    SearchView()
+                } label: {
+                    Label("Search", systemImage: "magnifyingglass")
+                }
+            }
+            #endif
+            Section {
+                Label(SidebarItem.nodes.title, systemImage: SidebarItem.nodes.systemImage)
+                    .tag(SidebarItem.nodes)
+                Label(SidebarItem.settings.title, systemImage: SidebarItem.settings.systemImage)
+                    .tag(SidebarItem.settings)
+            }
         }
+        .navigationSplitViewColumnWidth(min: 180, ideal: 200)
     }
 
     @ViewBuilder
@@ -136,10 +165,6 @@ struct ContentView: View {
     @ViewBuilder
     private var nonLibraryDetailView: some View {
         switch sidebarSelection {
-        case .queue:
-            NavigationStack {
-                QueueView()
-            }
         case .nodes:
             NavigationStack {
                 NodesView()
@@ -364,3 +389,41 @@ struct AllSongsPlaceholderView: View, Identifiable {
         )
     }
 }
+
+#if os(macOS)
+private struct QueueResizer: View {
+    @Binding var width: CGFloat
+    @State private var isDragging = false
+
+    var body: some View {
+        Rectangle()
+            .fill(isDragging ? Color.accentColor.opacity(0.3) : Color.secondary.opacity(0.2))
+            .frame(width: isDragging ? 3 : 1)
+            .contentShape(Rectangle().size(width: 8, height: .infinity))
+            .cursor(.resizeLeftRight)
+            .gesture(
+                DragGesture(minimumDistance: 1)
+                    .onChanged { value in
+                        isDragging = true
+                        let newWidth = width - value.translation.width
+                        width = min(max(newWidth, 200), 500)
+                    }
+                    .onEnded { _ in
+                        isDragging = false
+                    }
+            )
+    }
+}
+
+extension View {
+    func cursor(_ cursor: NSCursor) -> some View {
+        self.onHover { hovering in
+            if hovering {
+                cursor.push()
+            } else {
+                NSCursor.pop()
+            }
+        }
+    }
+}
+#endif

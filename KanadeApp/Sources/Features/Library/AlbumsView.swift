@@ -62,7 +62,7 @@ struct AlbumsView: View {
                                 .allowsHitTesting(!isPinching)
                             }
                         }
-                        .padding(.horizontal)
+                        .padding()
                     }
                 }
                 .simultaneousGesture(magnifyGesture)

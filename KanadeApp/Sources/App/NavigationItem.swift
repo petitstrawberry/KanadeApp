@@ -24,17 +24,16 @@ enum LibrarySection: String, CaseIterable, Hashable {
 
 enum SidebarItem: Hashable {
     case library(LibrarySection)
-    case queue, nodes, settings
+    case nodes, settings
 
     static var allCases: [SidebarItem] {
         LibrarySection.allCases.map { .library($0) }
-            + [.queue, .nodes, .settings]
+            + [.nodes, .settings]
     }
 
     var title: String {
         switch self {
         case .library(let section): section.title
-        case .queue: "Queue"
         case .nodes: "Nodes"
         case .settings: "Settings"
         }
@@ -43,7 +42,6 @@ enum SidebarItem: Hashable {
     var systemImage: String {
         switch self {
         case .library(let section): section.systemImage
-        case .queue: "list.bullet"
         case .nodes: "speaker.wave.2"
         case .settings: "gearshape"
         }
@@ -52,7 +50,7 @@ enum SidebarItem: Hashable {
     var isLibrary: Bool {
         switch self {
         case .library: true
-        case .queue, .nodes, .settings: false
+        case .nodes, .settings: false
         }
     }
 }

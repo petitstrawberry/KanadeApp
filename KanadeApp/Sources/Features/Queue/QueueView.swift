@@ -52,8 +52,8 @@ struct QueueView: View {
                 }
             }
         }
-        .navigationTitle("Queue")
         #if os(iOS)
+        .navigationTitle("Queue")
         .toolbar {
             if !queue.isEmpty {
                 EditButton()

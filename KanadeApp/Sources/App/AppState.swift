@@ -189,6 +189,10 @@ final class AppState {
         effectiveCurrentTrack != nil && (isConnected || localPlayback != nil)
     }
 
+    #if os(macOS)
+    var showQueue = false
+    #endif
+
     private var localPlaybackSessionUpdate: LocalPlaybackSessionUpdate? {
         localPlayback?.sessionUpdate
     }
