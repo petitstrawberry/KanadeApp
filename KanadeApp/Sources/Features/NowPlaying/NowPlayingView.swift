@@ -11,6 +11,7 @@ struct NowPlayingView: View {
     @State private var isSeeking = false
     @State private var pendingSeekTarget: Double?
     @State private var isAdjustingVolume = false
+    @State private var showQueue = false
     @State private var dominantColor: Color = .clear
 
     private var playbackState: AppState.EffectivePlaybackState {
@@ -216,6 +217,12 @@ struct NowPlayingView: View {
 
             Spacer(minLength: 0)
         }
+        .sheet(isPresented: $showQueue) {
+            NavigationStack {
+                QueueView()
+            }
+            .environment(appState)
+        }
         .padding(.bottom, 32)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(backgroundView)
@@ -245,6 +252,12 @@ struct NowPlayingView: View {
         .padding(24)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(backgroundView)
+        .sheet(isPresented: $showQueue) {
+            NavigationStack {
+                QueueView()
+            }
+            .environment(appState)
+        }
         .navigationBarBackButtonHidden()
         .onAppear {
             syncSeekPosition()
@@ -282,6 +295,15 @@ struct NowPlayingView: View {
             .menuStyle(.borderlessButton)
 
             Spacer()
+
+            Button {
+                showQueue = true
+            } label: {
+                Image(systemName: "list.bullet")
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(.white.opacity(0.6))
+            }
+            .buttonStyle(.plain)
 
             Circle()
                 .fill(.white.opacity(0.3))
@@ -444,6 +466,17 @@ struct NowPlayingView: View {
             .buttonStyle(.plain)
 
             Spacer()
+
+            Button {
+                showQueue = true
+            } label: {
+                Image(systemName: "list.bullet")
+                    .font(.headline)
+                    .foregroundStyle(.secondary)
+                    .frame(width: 36, height: 36)
+                    .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 10))
+            }
+            .buttonStyle(.plain)
 
             Menu {
                 OutputPickerMenuContent()

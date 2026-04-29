@@ -1,10 +1,10 @@
 import SwiftUI
 import KanadeKit
 
-struct ArtistDetailView: View {
+struct GenreDetailView: View {
     @Environment(AppState.self) private var appState
 
-    let artist: String
+    let genre: String
 
     @State private var albums: [Album] = []
     @State private var isLoading = false
@@ -13,7 +13,7 @@ struct ArtistDetailView: View {
     var body: some View {
         ScrollView {
             if let errorMessage {
-                ContentUnavailableView("Unable to Load Artist", systemImage: "exclamationmark.triangle", description: Text(errorMessage))
+                ContentUnavailableView("Unable to Load Genre", systemImage: "guitars", description: Text(errorMessage))
                     .frame(maxWidth: .infinity, minHeight: 240)
                     .padding()
             } else if isLoading && albums.isEmpty {
@@ -38,7 +38,7 @@ struct ArtistDetailView: View {
                 .padding()
             }
         }
-        .navigationTitle(artist)
+        .navigationTitle(genre)
         .task {
             await loadAlbums()
         }
@@ -55,7 +55,7 @@ struct ArtistDetailView: View {
         errorMessage = nil
 
         do {
-            albums = try await client.getArtistAlbums(artist: artist)
+            albums = try await client.getGenreAlbums(genre: genre)
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -63,5 +63,3 @@ struct ArtistDetailView: View {
         isLoading = false
     }
 }
-
-typealias ArtistAlbumsView = ArtistDetailView

@@ -88,6 +88,7 @@ final class StreamingPlaybackEngine {
         } else {
             wasPlaying = false
         }
+        shouldAutoplay = wasPlaying
 
         let newItem = AVPlayerItem(url: signedURL)
         queuePlayer.removeAllItems()

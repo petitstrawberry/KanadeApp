@@ -55,6 +55,7 @@ final class AppState {
     @ObservationIgnored private static let allowSelfSignedKey = "kanade.allowSelfSigned"
     @ObservationIgnored private static let trustedCADataKey = "kanade.trustedCAData"
     @ObservationIgnored private static let fallbackConnectionPollInterval: TimeInterval = 5.0
+    @ObservationIgnored private static let reconnectingIndicatorDelay: TimeInterval = 3.0
 
     @ObservationIgnored private let defaults = UserDefaults.standard
     @ObservationIgnored private var didAttemptStartupConnect = false
@@ -65,6 +66,7 @@ final class AppState {
     @ObservationIgnored private var isLocalPlaybackTearingDown = false
     @ObservationIgnored private var lastSentLocalSessionUpdateKey: LocalSessionUpdateKey?
     @ObservationIgnored private var connectionMonitorTask: Task<Void, Never>?
+    @ObservationIgnored private var reconnectingIndicatorTask: Task<Void, Never>?
     private var lastPrefetchQueueKey: String?
 
     var showRemoteUnavailablePrompt = false
@@ -103,6 +105,7 @@ final class AppState {
     var lastKnownRepeatMode: RepeatMode = .off
     var lastKnownShuffleEnabled = false
     private var connectionSnapshot = ConnectionSnapshot()
+    private var showReconnectingIndicator = false
 
     var serverAddress: String {
         didSet { persistConnectionSettings() }
@@ -150,6 +153,10 @@ final class AppState {
     var isConnected: Bool { connectionSnapshot.isConnected }
 
     var isRetryingConnection: Bool {
+        client != nil && !isConnected && !connectionSnapshot.reconnectExhausted && showReconnectingIndicator
+    }
+
+    private var isReconnectPending: Bool {
         client != nil && !isConnected && !connectionSnapshot.reconnectExhausted
     }
 
@@ -377,6 +384,35 @@ final class AppState {
         )
         if connectionSnapshot != next {
             connectionSnapshot = next
+        }
+        updateReconnectingIndicatorVisibility()
+    }
+
+    private func updateReconnectingIndicatorVisibility() {
+        reconnectingIndicatorTask?.cancel()
+        reconnectingIndicatorTask = nil
+
+        guard isReconnectPending else {
+            if showReconnectingIndicator {
+                showReconnectingIndicator = false
+            }
+            return
+        }
+
+        guard !showReconnectingIndicator else { return }
+
+        reconnectingIndicatorTask = Task { @MainActor [weak self] in
+            do {
+                try await Task.sleep(for: .seconds(Self.reconnectingIndicatorDelay))
+            } catch is CancellationError {
+                return
+            } catch {
+                return
+            }
+
+            guard let self, self.isReconnectPending else { return }
+            self.showReconnectingIndicator = true
+            self.reconnectingIndicatorTask = nil
         }
     }
 
@@ -890,6 +926,12 @@ extension AppState: KanadeClientDelegate {
             self.localSessionRegistered = false
             self.localSessionRegistrationPending = false
             self.lastSentLocalSessionUpdateKey = nil
+        }
+    }
+
+    nonisolated func clientDidUpdateConnectionStatus(_ client: KanadeClient) {
+        Task { @MainActor [weak self] in
+            self?.refreshConnectionSnapshot()
         }
     }
 

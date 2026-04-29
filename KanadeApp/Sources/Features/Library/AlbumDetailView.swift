@@ -11,33 +11,28 @@ struct AlbumDetailView: View {
     @State private var errorMessage: String?
 
     var body: some View {
-        Group {
-            if isLoading && tracks.isEmpty {
-                ProgressView()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if let errorMessage {
-                ContentUnavailableView("Unable to Load Album", systemImage: "exclamationmark.triangle", description: Text(errorMessage))
-            } else {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 20) {
-                        header
+        ScrollView {
+            VStack(alignment: .leading, spacing: 20) {
+                header
 
-                        LazyVStack(spacing: 8) {
-                            ForEach(Array(tracks.enumerated()), id: \.element.id) { index, track in
-                                TrackRow(track: track, isPlaying: currentTrackId == track.id, onTap: {
-                                    playTrack(at: index)
-                                }, appState: appState)
-                            }
+                if let errorMessage {
+                    ContentUnavailableView("Unable to Load Album", systemImage: "exclamationmark.triangle", description: Text(errorMessage))
+                        .frame(maxWidth: .infinity, minHeight: 240)
+                } else if tracks.isEmpty {
+                    ProgressView()
+                        .frame(maxWidth: .infinity, minHeight: 240)
+                } else {
+                    LazyVStack(spacing: 8) {
+                        ForEach(Array(tracks.enumerated()), id: \.element.id) { index, track in
+                            TrackRow(track: track, isPlaying: currentTrackId == track.id, onTap: {
+                                playTrack(at: index)
+                            }, appState: appState)
                         }
                     }
-                    .padding()
                 }
             }
+            .padding()
         }
-        .navigationTitle(album.title ?? "Album")
-        #if os(iOS)
-        .navigationBarTitleDisplayMode(.inline)
-        #endif
         .task {
             await loadTracks()
         }
@@ -48,11 +43,19 @@ struct AlbumDetailView: View {
             ArtworkView(mediaClient: appState.mediaClient, albumId: album.id)
                 .frame(width: 132, height: 132)
                 .clipShape(RoundedRectangle(cornerRadius: 18))
+                .overlay {
+                    if tracks.isEmpty && errorMessage == nil {
+                        RoundedRectangle(cornerRadius: 18)
+                            .fill(.ultraThinMaterial)
+                        ProgressView()
+                    }
+                }
 
             VStack(alignment: .leading, spacing: 8) {
                 Text(album.title ?? "Album")
                     .font(.title2.weight(.bold))
                     .multilineTextAlignment(.leading)
+                    .lineLimit(2)
 
                 Text("\(tracks.count) song\(tracks.count == 1 ? "" : "s")")
                     .font(.subheadline)
@@ -78,6 +81,13 @@ struct AlbumDetailView: View {
                         .buttonStyle(.bordered)
                         .controlSize(.small)
                     }
+                } else if errorMessage == nil {
+                    ProgressView("Loading tracks")
+                        .controlSize(.small)
+                } else if errorMessage != nil {
+                    Text("Couldn’t load tracks")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
                 }
             }
 

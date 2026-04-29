@@ -1,14 +1,11 @@
 import SwiftUI
 import KanadeKit
 
-enum SidebarItem: Hashable {
-    case library, search, queue, nodes, settings
-}
-
 struct ContentView: View {
     @Environment(AppState.self) private var appState
-    @State private var sidebarSelection: SidebarItem? = .library
+    @State private var sidebarSelection: SidebarItem? = .library(.albums)
     @State private var showNowPlaying = false
+    @State private var showNodes = false
     @State private var showSettings = false
 
     private var shouldShowPlayerShell: Bool {
@@ -36,6 +33,12 @@ struct ContentView: View {
             }
             .environment(appState)
         }
+        .sheet(isPresented: $showNodes) {
+            NavigationStack {
+                NodesView()
+            }
+            .environment(appState)
+        }
     }
 
     @ViewBuilder
@@ -50,32 +53,155 @@ struct ContentView: View {
         #endif
     }
 
-    #if os(iOS)
-    var iosContent: some View {
-        TabView {
-            Tab("Library", systemImage: "square.stack") {
-                NavigationStack {
-                    LibraryView()
+    @ViewBuilder
+    var sidebarContent: some View {
+        NavigationSplitView {
+            List(selection: $sidebarSelection) {
+                Section("Library") {
+                    ForEach(SidebarItem.allCases.filter(\.isLibrary), id: \.self) { item in
+                        Label(item.title, systemImage: item.systemImage)
+                            .tag(item)
+                    }
+                }
+                #if os(iOS)
+                Section {
+                    NavigationLink {
+                        SearchView()
+                    } label: {
+                        Label("Search", systemImage: "magnifyingglass")
+                    }
+                }
+                #endif
+                Section {
+                    Label(SidebarItem.nodes.title, systemImage: SidebarItem.nodes.systemImage)
+                        .tag(SidebarItem.nodes)
+                    Label(SidebarItem.settings.title, systemImage: SidebarItem.settings.systemImage)
+                        .tag(SidebarItem.settings)
                 }
             }
-            Tab("Search", systemImage: "magnifyingglass") {
+            .navigationSplitViewColumnWidth(min: 180, ideal: 200)
+        } detail: {
+            detailColumn
+                .safeAreaInset(edge: .top, spacing: 0) {
+                    connectionBanner
+                }
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                if appState.shouldShowMiniPlayer {
+                    NowPlayingBar(placement: .macFloating, onActivate: { showNowPlaying = true })
+                        .padding(.horizontal, 20)
+                        .padding(.bottom, 12)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    var detailColumn: some View {
+        ZStack {
+            librarySectionStacks
+            nonLibraryDetailView
+        }
+    }
+
+    private var activeLibrarySection: LibrarySection? {
+        guard case .library(let section) = sidebarSelection else { return nil }
+        return section
+    }
+
+    @ViewBuilder
+    private var librarySectionStacks: some View {
+        let active = activeLibrarySection
+
+        NavigationStack {
+            AlbumsView()
+        }
+        .opacity(active == .albums ? 1 : 0)
+        .allowsHitTesting(active == .albums)
+
+        NavigationStack {
+            ArtistsView()
+        }
+        .opacity(active == .artists ? 1 : 0)
+        .allowsHitTesting(active == .artists)
+
+        NavigationStack {
+            GenresView()
+        }
+        .opacity(active == .genres ? 1 : 0)
+        .allowsHitTesting(active == .genres)
+
+        NavigationStack {
+            PlaylistsView()
+        }
+        .opacity(active == .playlists ? 1 : 0)
+        .allowsHitTesting(active == .playlists)
+    }
+
+    @ViewBuilder
+    private var nonLibraryDetailView: some View {
+        switch sidebarSelection {
+        case .nodes:
+            NavigationStack {
+                NodesView()
+            }
+        case .settings:
+            NavigationStack {
+                SettingsView()
+            }
+        case nil:
+            NavigationStack {
+                ContentUnavailableView("Select a section", systemImage: "sidebar.left")
+            }
+        case .library:
+            EmptyView()
+        }
+    }
+
+    #if os(iOS)
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+
+    var iosContent: some View {
+        Group {
+            if horizontalSizeClass == .compact {
+                iphoneContent
+            } else {
+                sidebarContent
+            }
+        }
+    }
+
+    var iphoneContent: some View {
+        TabView {
+            Tab(LibrarySection.albums.title, systemImage: LibrarySection.albums.systemImage) {
+                NavigationStack {
+                    AlbumsView()
+                        .toolbar { iphoneGlobalToolbarItems }
+                }
+            }
+            Tab(LibrarySection.artists.title, systemImage: LibrarySection.artists.systemImage) {
+                NavigationStack {
+                    ArtistsView()
+                        .toolbar { iphoneGlobalToolbarItems }
+                }
+            }
+            Tab(LibrarySection.genres.title, systemImage: LibrarySection.genres.systemImage) {
+                NavigationStack {
+                    GenresView()
+                        .toolbar { iphoneGlobalToolbarItems }
+                }
+            }
+            Tab(LibrarySection.playlists.title, systemImage: LibrarySection.playlists.systemImage) {
+                NavigationStack {
+                    PlaylistsView()
+                        .toolbar { iphoneGlobalToolbarItems }
+                }
+            }
+            Tab(role: .search) {
                 NavigationStack {
                     SearchView()
-                }
-            }
-            Tab("Queue", systemImage: "list.bullet") {
-                NavigationStack {
-                    QueueView()
-                }
-            }
-            Tab("Nodes", systemImage: "speaker.wave.2") {
-                NavigationStack {
-                    NodesView()
-                }
-            }
-            Tab("Settings", systemImage: "gearshape") {
-                NavigationStack {
-                    SettingsView()
+                        .toolbar {
+                            iphoneGlobalToolbarItems
+                        }
                 }
             }
         }
@@ -91,57 +217,30 @@ struct ContentView: View {
         }
         .tabBarMinimizeBehavior(.onScrollDown)
     }
+
+    @ToolbarContentBuilder
+    var iphoneGlobalToolbarItems: some ToolbarContent {
+        ToolbarItem(placement: .topBarTrailing) {
+            Button {
+                showNodes = true
+            } label: {
+                Image(systemName: "speaker.wave.2")
+            }
+        }
+
+        ToolbarItem(placement: .topBarLeading) {
+            Button {
+                showSettings = true
+            } label: {
+                Image(systemName: "gearshape")
+            }
+        }
+    }
     #endif
 
     #if os(macOS)
     var macContent: some View {
-        NavigationSplitView {
-            List(selection: $sidebarSelection) {
-                Label("Library", systemImage: "square.stack")
-                    .tag(SidebarItem.library)
-                Label("Search", systemImage: "magnifyingglass")
-                    .tag(SidebarItem.search)
-                Label("Queue", systemImage: "list.bullet")
-                    .tag(SidebarItem.queue)
-                Label("Nodes", systemImage: "speaker.wave.2")
-                    .tag(SidebarItem.nodes)
-                Label("Settings", systemImage: "gearshape")
-                    .tag(SidebarItem.settings)
-            }
-            .navigationSplitViewColumnWidth(min: 180, ideal: 200)
-        } detail: {
-            NavigationStack {
-                detailView
-                    .safeAreaInset(edge: .top, spacing: 0) {
-                        connectionBanner
-                    }
-            }
-            .safeAreaInset(edge: .bottom, spacing: 0) {
-                if appState.shouldShowMiniPlayer {
-                    NowPlayingBar(placement: .macFloating)
-                        .padding(.horizontal, 20)
-                        .padding(.bottom, 12)
-                }
-            }
-        }
-    }
-
-    @ViewBuilder
-    var detailView: some View {
-        switch sidebarSelection {
-        case .library:
-            LibraryView()
-        case .search:
-            SearchView()
-        case .queue:
-            QueueView()
-        case .nodes:
-            NodesView()
-        case .settings:
-            SettingsView()
-        case nil:
-            ContentUnavailableView("Select a section", systemImage: "sidebar.left")
-        }
+        sidebarContent
     }
     #endif
 
@@ -251,5 +350,17 @@ struct ConnectionPrompt: View {
             .buttonStyle(.borderedProminent)
         }
         .padding()
+    }
+}
+
+struct AllSongsPlaceholderView: View, Identifiable {
+    let id = UUID()
+
+    var body: some View {
+        ContentUnavailableView(
+            "All Songs Coming Soon",
+            systemImage: "music.note",
+            description: Text("All Songs view isn't implemented yet.")
+        )
     }
 }

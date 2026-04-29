@@ -56,7 +56,7 @@ struct NodesView: View {
                 }
             }
         }
-        .navigationTitle("Output")
+        .navigationTitle("Output Nodes")
     }
 
     @ViewBuilder
