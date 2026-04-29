@@ -10,6 +10,7 @@ struct NowPlayingBar: View {
     @Environment(AppState.self) private var appState
 
     let placement: NowPlayingBarPlacement
+    let onActivate: (() -> Void)?
 
     @State private var seekPosition: Double = 0
     @State private var isSeeking = false
@@ -53,8 +54,9 @@ struct NowPlayingBar: View {
         playbackState.shuffleEnabled
     }
 
-    init(placement: NowPlayingBarPlacement = .iosAccessory) {
+    init(placement: NowPlayingBarPlacement = .iosAccessory, onActivate: (() -> Void)? = nil) {
         self.placement = placement
+        self.onActivate = onActivate
     }
 
     var body: some View {
@@ -74,10 +76,17 @@ struct NowPlayingBar: View {
         .onChange(of: currentVolume, handleCurrentVolumeChange)
     }
 
+    @ViewBuilder
     private func barContent(currentTrack: Track) -> some View {
-        ViewThatFits(in: .horizontal) {
-            fullContent(currentTrack: currentTrack)
+        Group {
+            #if os(iOS)
             compactContent(currentTrack: currentTrack)
+            #else
+            ViewThatFits(in: .horizontal) {
+                fullContent(currentTrack: currentTrack)
+                compactContent(currentTrack: currentTrack)
+            }
+            #endif
         }
         .frame(maxWidth: .infinity)
         .padding(.horizontal, horizontalPadding)
@@ -106,6 +115,7 @@ struct NowPlayingBar: View {
         .frame(maxWidth: .infinity)
         .frame(height: placement == .iosAccessory ? 60 : 64)
         .modifier(PlacementBackgroundModifier(placement: placement))
+        .modifier(OptionalActivationModifier(onActivate: onActivate))
     }
 
     @ViewBuilder
@@ -138,6 +148,7 @@ struct NowPlayingBar: View {
         .frame(maxWidth: .infinity)
         .frame(height: placement == .iosAccessory ? 60 : 64)
         .modifier(PlacementBackgroundModifier(placement: placement))
+        .modifier(OptionalActivationModifier(onActivate: onActivate))
     }
 
     private func leftColumn(currentTrack: Track) -> some View {
@@ -165,7 +176,6 @@ struct NowPlayingBar: View {
                 }
             }
         }
-        .contentShape(Rectangle())
     }
 
     private func compactInfoCluster(currentTrack: Track) -> some View {
@@ -186,7 +196,6 @@ struct NowPlayingBar: View {
                     .lineLimit(1)
             }
         }
-        .contentShape(Rectangle())
     }
 
     private var centerColumn: some View {
@@ -478,6 +487,23 @@ private struct PlacementBackgroundModifier: ViewModifier {
             content
         case .macFloating:
             content.background(MacFloatingBarBackground())
+        }
+    }
+}
+
+private struct OptionalActivationModifier: ViewModifier {
+    let onActivate: (() -> Void)?
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if let onActivate {
+            content
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    onActivate()
+                }
+        } else {
+            content
         }
     }
 }

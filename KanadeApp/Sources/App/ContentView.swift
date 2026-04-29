@@ -96,7 +96,7 @@ struct ContentView: View {
             }
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 if appState.shouldShowMiniPlayer {
-                    NowPlayingBar(placement: .iosAccessory)
+                    NowPlayingBar(placement: .macFloating, onActivate: { showNowPlaying = true })
                         .padding(.horizontal, 20)
                         .padding(.bottom, 12)
                 }
