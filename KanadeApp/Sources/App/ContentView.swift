@@ -2,13 +2,15 @@ import SwiftUI
 import KanadeKit
 
 enum SidebarItem: Hashable {
-    case library, search, queue, nodes, settings
+    case libraryAlbums, libraryArtists, libraryGenres
+    case nodes, settings
 }
 
 struct ContentView: View {
     @Environment(AppState.self) private var appState
-    @State private var sidebarSelection: SidebarItem? = .library
+    @State private var sidebarSelection: SidebarItem? = .libraryAlbums
     @State private var showNowPlaying = false
+    @State private var showNodes = false
     @State private var showSettings = false
 
     private var shouldShowPlayerShell: Bool {
@@ -36,6 +38,12 @@ struct ContentView: View {
             }
             .environment(appState)
         }
+        .sheet(isPresented: $showNodes) {
+            NavigationStack {
+                NodesView()
+            }
+            .environment(appState)
+        }
     }
 
     @ViewBuilder
@@ -50,32 +58,105 @@ struct ContentView: View {
         #endif
     }
 
-    #if os(iOS)
-    var iosContent: some View {
-        TabView {
-            Tab("Library", systemImage: "square.stack") {
-                NavigationStack {
-                    LibraryView()
+    @ViewBuilder
+    var sidebarContent: some View {
+        NavigationSplitView {
+            List(selection: $sidebarSelection) {
+                Section("Library") {
+                    Label("Albums", systemImage: "square.stack")
+                        .tag(SidebarItem.libraryAlbums)
+                    Label("Artists", systemImage: "music.mic")
+                        .tag(SidebarItem.libraryArtists)
+                    Label("Genres", systemImage: "music.note.list")
+                        .tag(SidebarItem.libraryGenres)
+                }
+                #if os(iOS)
+                Section {
+                    NavigationLink {
+                        SearchView()
+                    } label: {
+                        Label("Search", systemImage: "magnifyingglass")
+                    }
+                }
+                #endif
+                Section {
+                    Label("Nodes", systemImage: "speaker.wave.2")
+                        .tag(SidebarItem.nodes)
+                    Label("Settings", systemImage: "gearshape")
+                        .tag(SidebarItem.settings)
                 }
             }
-            Tab("Search", systemImage: "magnifyingglass") {
+            .navigationSplitViewColumnWidth(min: 180, ideal: 200)
+        } detail: {
+            NavigationStack {
+                detailView
+                    .safeAreaInset(edge: .top, spacing: 0) {
+                        connectionBanner
+                    }
+            }
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                if appState.shouldShowMiniPlayer {
+                    NowPlayingBar(placement: .iosAccessory)
+                        .padding(.horizontal, 20)
+                        .padding(.bottom, 12)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    var detailView: some View {
+        switch sidebarSelection {
+        case .libraryAlbums:
+            LibraryView(category: .albums)
+        case .libraryArtists:
+            LibraryView(category: .artists)
+        case .libraryGenres:
+            LibraryView(category: .genres)
+        case .nodes:
+            NodesView()
+        case .settings:
+            SettingsView()
+        case nil:
+            ContentUnavailableView("Select a section", systemImage: "sidebar.left")
+        }
+    }
+
+    #if os(iOS)
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+
+    var iosContent: some View {
+        Group {
+            if horizontalSizeClass == .compact {
+                iphoneContent
+            } else {
+                sidebarContent
+            }
+        }
+    }
+
+    var iphoneContent: some View {
+        TabView {
+            Tab("Albums", systemImage: "square.stack") {
+                iphoneLibrarySection(category: .albums)
+            }
+            Tab("Artists", systemImage: "music.mic") {
+                iphoneLibrarySection(category: .artists)
+            }
+            Tab("Genres", systemImage: "guitars") {
+                iphoneLibrarySection(category: .genres)
+            }
+            Tab("Playlists", systemImage: "music.note.list") {
+                iphonePlaceholderSection(title: "Playlists") {
+                    PlaylistsPlaceholderView()
+                }
+            }
+            Tab(role: .search) {
                 NavigationStack {
                     SearchView()
-                }
-            }
-            Tab("Queue", systemImage: "list.bullet") {
-                NavigationStack {
-                    QueueView()
-                }
-            }
-            Tab("Nodes", systemImage: "speaker.wave.2") {
-                NavigationStack {
-                    NodesView()
-                }
-            }
-            Tab("Settings", systemImage: "gearshape") {
-                NavigationStack {
-                    SettingsView()
+                        .toolbar {
+                            iphoneGlobalToolbarItems
+                        }
                 }
             }
         }
@@ -91,57 +172,49 @@ struct ContentView: View {
         }
         .tabBarMinimizeBehavior(.onScrollDown)
     }
+
+    func iphoneLibrarySection(category: LibraryCategory) -> some View {
+        NavigationStack {
+            LibraryView(category: category)
+                .toolbar {
+                    iphoneGlobalToolbarItems
+                }
+        }
+    }
+
+    func iphonePlaceholderSection<Content: View>(title: String, @ViewBuilder content: () -> Content) -> some View {
+        NavigationStack {
+            content()
+                .navigationTitle(title)
+                .toolbar {
+                    iphoneGlobalToolbarItems
+                }
+        }
+    }
+
+    @ToolbarContentBuilder
+    var iphoneGlobalToolbarItems: some ToolbarContent {
+        ToolbarItem(placement: .topBarTrailing) {
+            Button {
+                showNodes = true
+            } label: {
+                Image(systemName: "speaker.wave.2")
+            }
+        }
+
+        ToolbarItem(placement: .topBarLeading) {
+            Button {
+                showSettings = true
+            } label: {
+                Image(systemName: "gearshape")
+            }
+        }
+    }
     #endif
 
     #if os(macOS)
     var macContent: some View {
-        NavigationSplitView {
-            List(selection: $sidebarSelection) {
-                Label("Library", systemImage: "square.stack")
-                    .tag(SidebarItem.library)
-                Label("Search", systemImage: "magnifyingglass")
-                    .tag(SidebarItem.search)
-                Label("Queue", systemImage: "list.bullet")
-                    .tag(SidebarItem.queue)
-                Label("Nodes", systemImage: "speaker.wave.2")
-                    .tag(SidebarItem.nodes)
-                Label("Settings", systemImage: "gearshape")
-                    .tag(SidebarItem.settings)
-            }
-            .navigationSplitViewColumnWidth(min: 180, ideal: 200)
-        } detail: {
-            NavigationStack {
-                detailView
-                    .safeAreaInset(edge: .top, spacing: 0) {
-                        connectionBanner
-                    }
-            }
-            .safeAreaInset(edge: .bottom, spacing: 0) {
-                if appState.shouldShowMiniPlayer {
-                    NowPlayingBar(placement: .macFloating)
-                        .padding(.horizontal, 20)
-                        .padding(.bottom, 12)
-                }
-            }
-        }
-    }
-
-    @ViewBuilder
-    var detailView: some View {
-        switch sidebarSelection {
-        case .library:
-            LibraryView()
-        case .search:
-            SearchView()
-        case .queue:
-            QueueView()
-        case .nodes:
-            NodesView()
-        case .settings:
-            SettingsView()
-        case nil:
-            ContentUnavailableView("Select a section", systemImage: "sidebar.left")
-        }
+        sidebarContent
     }
     #endif
 
@@ -251,5 +324,15 @@ struct ConnectionPrompt: View {
             .buttonStyle(.borderedProminent)
         }
         .padding()
+    }
+}
+
+struct PlaylistsPlaceholderView: View {
+    var body: some View {
+        ContentUnavailableView(
+            "Playlists Coming Soon",
+            systemImage: "music.note.list",
+            description: Text("Playlist support isn’t implemented yet.")
+        )
     }
 }
