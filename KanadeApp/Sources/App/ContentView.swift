@@ -1,14 +1,9 @@
 import SwiftUI
 import KanadeKit
 
-enum SidebarItem: Hashable {
-    case libraryAlbums, libraryArtists, libraryGenres
-    case nodes, settings
-}
-
 struct ContentView: View {
     @Environment(AppState.self) private var appState
-    @State private var sidebarSelection: SidebarItem? = .libraryAlbums
+    @State private var sidebarSelection: SidebarItem? = .library(.albums)
     @State private var showNowPlaying = false
     @State private var showNodes = false
     @State private var showSettings = false
@@ -63,12 +58,10 @@ struct ContentView: View {
         NavigationSplitView {
             List(selection: $sidebarSelection) {
                 Section("Library") {
-                    Label("Albums", systemImage: "square.stack")
-                        .tag(SidebarItem.libraryAlbums)
-                    Label("Artists", systemImage: "music.mic")
-                        .tag(SidebarItem.libraryArtists)
-                    Label("Genres", systemImage: "music.note.list")
-                        .tag(SidebarItem.libraryGenres)
+                    ForEach(SidebarItem.allCases.filter(\.isLibrary), id: \.self) { item in
+                        Label(item.title, systemImage: item.systemImage)
+                            .tag(item)
+                    }
                 }
                 #if os(iOS)
                 Section {
@@ -80,9 +73,9 @@ struct ContentView: View {
                 }
                 #endif
                 Section {
-                    Label("Nodes", systemImage: "speaker.wave.2")
+                    Label(SidebarItem.nodes.title, systemImage: SidebarItem.nodes.systemImage)
                         .tag(SidebarItem.nodes)
-                    Label("Settings", systemImage: "gearshape")
+                    Label(SidebarItem.settings.title, systemImage: SidebarItem.settings.systemImage)
                         .tag(SidebarItem.settings)
                 }
             }
@@ -107,12 +100,17 @@ struct ContentView: View {
     @ViewBuilder
     var detailView: some View {
         switch sidebarSelection {
-        case .libraryAlbums:
-            LibraryView(category: .albums)
-        case .libraryArtists:
-            LibraryView(category: .artists)
-        case .libraryGenres:
-            LibraryView(category: .genres)
+        case .library(let section):
+            switch section {
+            case .albums:
+                AlbumsView()
+            case .artists:
+                ArtistsView()
+            case .genres:
+                GenresView()
+            case .playlists:
+                PlaylistsPlaceholderView()
+            }
         case .nodes:
             NodesView()
         case .settings:
@@ -137,18 +135,29 @@ struct ContentView: View {
 
     var iphoneContent: some View {
         TabView {
-            Tab("Albums", systemImage: "square.stack") {
-                iphoneLibrarySection(category: .albums)
+            Tab(LibrarySection.albums.title, systemImage: LibrarySection.albums.systemImage) {
+                NavigationStack {
+                    AlbumsView()
+                        .toolbar { iphoneGlobalToolbarItems }
+                }
             }
-            Tab("Artists", systemImage: "music.mic") {
-                iphoneLibrarySection(category: .artists)
+            Tab(LibrarySection.artists.title, systemImage: LibrarySection.artists.systemImage) {
+                NavigationStack {
+                    ArtistsView()
+                        .toolbar { iphoneGlobalToolbarItems }
+                }
             }
-            Tab("Genres", systemImage: "guitars") {
-                iphoneLibrarySection(category: .genres)
+            Tab(LibrarySection.genres.title, systemImage: LibrarySection.genres.systemImage) {
+                NavigationStack {
+                    GenresView()
+                        .toolbar { iphoneGlobalToolbarItems }
+                }
             }
-            Tab("Playlists", systemImage: "music.note.list") {
-                iphonePlaceholderSection(title: "Playlists") {
+            Tab(LibrarySection.playlists.title, systemImage: LibrarySection.playlists.systemImage) {
+                NavigationStack {
                     PlaylistsPlaceholderView()
+                        .navigationTitle(LibrarySection.playlists.title)
+                        .toolbar { iphoneGlobalToolbarItems }
                 }
             }
             Tab(role: .search) {
@@ -171,25 +180,6 @@ struct ContentView: View {
             }
         }
         .tabBarMinimizeBehavior(.onScrollDown)
-    }
-
-    func iphoneLibrarySection(category: LibraryCategory) -> some View {
-        NavigationStack {
-            LibraryView(category: category)
-                .toolbar {
-                    iphoneGlobalToolbarItems
-                }
-        }
-    }
-
-    func iphonePlaceholderSection<Content: View>(title: String, @ViewBuilder content: () -> Content) -> some View {
-        NavigationStack {
-            content()
-                .navigationTitle(title)
-                .toolbar {
-                    iphoneGlobalToolbarItems
-                }
-        }
     }
 
     @ToolbarContentBuilder
@@ -332,7 +322,19 @@ struct PlaylistsPlaceholderView: View {
         ContentUnavailableView(
             "Playlists Coming Soon",
             systemImage: "music.note.list",
-            description: Text("Playlist support isn’t implemented yet.")
+            description: Text("Playlist support isn't implemented yet.")
+        )
+    }
+}
+
+struct AllSongsPlaceholderView: View, Identifiable {
+    let id = UUID()
+
+    var body: some View {
+        ContentUnavailableView(
+            "All Songs Coming Soon",
+            systemImage: "music.note",
+            description: Text("All Songs view isn't implemented yet.")
         )
     }
 }

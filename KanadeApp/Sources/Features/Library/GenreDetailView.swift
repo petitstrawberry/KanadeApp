@@ -17,7 +17,7 @@ struct GenreDetailView: View {
                 ProgressView()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if let errorMessage {
-                ContentUnavailableView("Unable to Load Genre", systemImage: "music.note.list", description: Text(errorMessage))
+                ContentUnavailableView("Unable to Load Genre", systemImage: "guitars", description: Text(errorMessage))
             } else {
                 ScrollView {
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 150, maximum: 300), spacing: 16)], spacing: 16) {
