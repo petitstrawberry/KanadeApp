@@ -17,12 +17,14 @@ struct GenresView: View {
                 ContentUnavailableView("Unable to Load Genres", systemImage: "guitars", description: Text(errorMessage))
             } else {
                 ScrollView {
-                    VStack(spacing: 10) {
-                        ForEach(genres, id: \.self) { genre in
-                            LibraryTextRow(title: genre, systemImage: LibrarySection.genres.systemImage)
+                    LazyVStack(alignment: .leading, spacing: 16) {
+                        VStack(spacing: 10) {
+                            ForEach(genres, id: \.self) { genre in
+                                LibraryTextRow(title: genre, systemImage: LibrarySection.genres.systemImage)
+                            }
                         }
+                        .padding(.horizontal)
                     }
-                    .padding(.horizontal)
                 }
             }
         }

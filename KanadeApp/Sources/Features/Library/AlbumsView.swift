@@ -22,20 +22,22 @@ struct AlbumsView: View {
                 ContentUnavailableView("Unable to Load Albums", systemImage: "square.stack", description: Text(errorMessage))
             } else {
                 ScrollView {
-                    LazyVGrid(columns: albumColumns, spacing: 16) {
-                        allSongsCard
+                    LazyVStack(alignment: .leading, spacing: 16) {
+                        LazyVGrid(columns: albumColumns, spacing: 16) {
+                            allSongsCard
 
-                        ForEach(albums) { album in
-                            AlbumTile(
-                                album: album,
-                                appState: appState,
-                                mediaClient: appState.mediaClient,
-                                isInteractionEnabled: !isPinching,
-                                openAlbum: { selectedAlbum = album }
-                            )
+                            ForEach(albums) { album in
+                                AlbumTile(
+                                    album: album,
+                                    appState: appState,
+                                    mediaClient: appState.mediaClient,
+                                    isInteractionEnabled: !isPinching,
+                                    openAlbum: { selectedAlbum = album }
+                                )
+                            }
                         }
+                        .padding(.horizontal)
                     }
-                    .padding(.horizontal)
                 }
                 .simultaneousGesture(magnifyGesture)
             }

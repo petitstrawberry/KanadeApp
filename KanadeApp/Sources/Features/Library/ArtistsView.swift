@@ -17,17 +17,19 @@ struct ArtistsView: View {
                 ContentUnavailableView("Unable to Load Artists", systemImage: "music.mic", description: Text(errorMessage))
             } else {
                 ScrollView {
-                    VStack(spacing: 10) {
-                        ForEach(artists, id: \.self) { artist in
-                            NavigationLink {
-                                ArtistDetailView(artist: artist)
-                            } label: {
-                                LibraryTextRow(title: artist, systemImage: LibrarySection.artists.systemImage)
+                    LazyVStack(alignment: .leading, spacing: 16) {
+                        VStack(spacing: 10) {
+                            ForEach(artists, id: \.self) { artist in
+                                NavigationLink {
+                                    ArtistDetailView(artist: artist)
+                                } label: {
+                                    LibraryTextRow(title: artist, systemImage: LibrarySection.artists.systemImage)
+                                }
+                                .buttonStyle(.plain)
                             }
-                            .buttonStyle(.plain)
                         }
+                        .padding(.horizontal)
                     }
-                    .padding(.horizontal)
                 }
             }
         }

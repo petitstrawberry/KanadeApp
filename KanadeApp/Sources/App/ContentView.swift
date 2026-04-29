@@ -109,7 +109,7 @@ struct ContentView: View {
             case .genres:
                 GenresView()
             case .playlists:
-                PlaylistsPlaceholderView()
+                PlaylistsView()
             }
         case .nodes:
             NodesView()
@@ -155,8 +155,7 @@ struct ContentView: View {
             }
             Tab(LibrarySection.playlists.title, systemImage: LibrarySection.playlists.systemImage) {
                 NavigationStack {
-                    PlaylistsPlaceholderView()
-                        .navigationTitle(LibrarySection.playlists.title)
+                    PlaylistsView()
                         .toolbar { iphoneGlobalToolbarItems }
                 }
             }
@@ -314,16 +313,6 @@ struct ConnectionPrompt: View {
             .buttonStyle(.borderedProminent)
         }
         .padding()
-    }
-}
-
-struct PlaylistsPlaceholderView: View {
-    var body: some View {
-        ContentUnavailableView(
-            "Playlists Coming Soon",
-            systemImage: "music.note.list",
-            description: Text("Playlist support isn't implemented yet.")
-        )
     }
 }
 
