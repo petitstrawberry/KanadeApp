@@ -7,7 +7,6 @@ struct AlbumsView: View {
     @State private var albums: [Album] = []
     @State private var isLoading = false
     @State private var errorMessage: String?
-    @State private var showAllSongs = false
     @State private var cardMinWidth: CGFloat = 150
     @GestureState private var magnification: CGFloat = 1
     @GestureState private var isPinching = false
@@ -23,7 +22,17 @@ struct AlbumsView: View {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 16) {
                         LazyVGrid(columns: albumColumns, spacing: 16) {
-                            allSongsCard
+                            NavigationLink {
+                                AllSongsPlaceholderView()
+                            } label: {
+                                AlbumTile(
+                                    album: allSongsAlbum,
+                                    appState: appState,
+                                    mediaClient: nil
+                                )
+                            }
+                            .buttonStyle(.plain)
+                            .allowsHitTesting(!isPinching)
 
                             ForEach(albums) { album in
                                 NavigationLink {
@@ -46,9 +55,6 @@ struct AlbumsView: View {
             }
         }
         .navigationTitle("Albums")
-        .navigationDestination(isPresented: $showAllSongs) {
-            AllSongsPlaceholderView()
-        }
         .task {
             await loadAlbums()
         }
@@ -59,49 +65,12 @@ struct AlbumsView: View {
         }
     }
 
-    @ViewBuilder
-    private var allSongsCard: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(
-                        LinearGradient(
-                            colors: [Color.accentColor.opacity(0.3), Color.accentColor.opacity(0.1)],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
-                    .aspectRatio(1, contentMode: .fit)
-
-                Image(systemName: "music.note")
-                    .font(.system(size: 40, weight: .light))
-                    .foregroundStyle(.white.opacity(0.6))
-
-                Image(systemName: "play.fill")
-                    .font(.system(size: 18, weight: .bold))
-                    .foregroundStyle(.white)
-                    .frame(width: 48, height: 48)
-                    .background(Color.accentColor, in: Circle())
-                    .opacity(0.8)
-            }
-
-            Text("All Songs")
-                .font(.subheadline.weight(.medium))
-                .foregroundStyle(.primary)
-                .lineLimit(2, reservesSpace: true)
-                .truncationMode(.tail)
-                .multilineTextAlignment(.leading)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .contentShape(Rectangle())
-                .onTapGesture {
-                    guard !isPinching else { return }
-                    showAllSongs = true
-                }        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
     private var albumColumns: [GridItem] {
         [GridItem(.adaptive(minimum: effectiveCardMinWidth, maximum: 300), spacing: 16)]
+    }
+
+    private var allSongsAlbum: Album {
+        Album(id: "__all_songs__", dirPath: "", title: "All Songs", artworkPath: nil)
     }
 
     private var effectiveCardMinWidth: CGFloat {

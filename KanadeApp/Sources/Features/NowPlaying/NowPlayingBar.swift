@@ -96,6 +96,7 @@ struct NowPlayingBar: View {
     private func compactContent(currentTrack: Track) -> some View {
         HStack(spacing: 12) {
             compactInfoCluster(currentTrack: currentTrack)
+                .allowsHitTesting(false)
 
             Spacer()
 
@@ -110,6 +111,7 @@ struct NowPlayingBar: View {
             .buttonStyle(.plain)
             .frame(width: 36, height: 36)
         }
+        .contentShape(Rectangle())
         .padding(.horizontal, 16)
         .padding(.vertical, 6)
         .frame(maxWidth: .infinity)
