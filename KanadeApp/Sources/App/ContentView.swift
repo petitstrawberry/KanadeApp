@@ -20,6 +20,7 @@ struct ContentView: View {
                 ConnectionPrompt(onOpenSettings: { showSettings = true })
             }
         }
+        #if os(iOS)
         .sheet(isPresented: $showNowPlaying) {
             NowPlayingView()
                 .environment(appState)
@@ -27,6 +28,7 @@ struct ContentView: View {
                 .presentationDragIndicator(.hidden)
                 .presentationBackground(.clear)
         }
+        #endif
         .sheet(isPresented: $showSettings) {
             NavigationStack {
                 SettingsView()
@@ -73,6 +75,10 @@ struct ContentView: View {
                 }
                 #endif
                 Section {
+                    #if os(macOS)
+                    Label(SidebarItem.queue.title, systemImage: SidebarItem.queue.systemImage)
+                        .tag(SidebarItem.queue)
+                    #endif
                     Label(SidebarItem.nodes.title, systemImage: SidebarItem.nodes.systemImage)
                         .tag(SidebarItem.nodes)
                     Label(SidebarItem.settings.title, systemImage: SidebarItem.settings.systemImage)
@@ -87,7 +93,11 @@ struct ContentView: View {
                 }
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 if appState.shouldShowMiniPlayer {
-                    NowPlayingBar(placement: .macFloating, onActivate: { showNowPlaying = true })
+                    NowPlayingBar(placement: .macFloating, onActivate: {
+                        #if os(iOS)
+                        showNowPlaying = true
+                        #endif
+                    })
                         .padding(.horizontal, 20)
                         .padding(.bottom, 12)
                 }
@@ -112,34 +122,24 @@ struct ContentView: View {
     private var librarySectionStacks: some View {
         let active = activeLibrarySection
 
-        NavigationStack {
-            AlbumsView()
+        if active == .albums {
+            NavigationStack { AlbumsView() }
+        } else if active == .artists {
+            NavigationStack { ArtistsView() }
+        } else if active == .genres {
+            NavigationStack { GenresView() }
+        } else if active == .playlists {
+            NavigationStack { PlaylistsView() }
         }
-        .opacity(active == .albums ? 1 : 0)
-        .allowsHitTesting(active == .albums)
-
-        NavigationStack {
-            ArtistsView()
-        }
-        .opacity(active == .artists ? 1 : 0)
-        .allowsHitTesting(active == .artists)
-
-        NavigationStack {
-            GenresView()
-        }
-        .opacity(active == .genres ? 1 : 0)
-        .allowsHitTesting(active == .genres)
-
-        NavigationStack {
-            PlaylistsView()
-        }
-        .opacity(active == .playlists ? 1 : 0)
-        .allowsHitTesting(active == .playlists)
     }
 
     @ViewBuilder
     private var nonLibraryDetailView: some View {
         switch sidebarSelection {
+        case .queue:
+            NavigationStack {
+                QueueView()
+            }
         case .nodes:
             NavigationStack {
                 NodesView()
