@@ -1,10 +1,10 @@
 import SwiftUI
 import KanadeKit
 
-struct ArtistDetailView: View {
+struct GenreDetailView: View {
     @Environment(AppState.self) private var appState
 
-    let artist: String
+    let genre: String
 
     @State private var albums: [Album] = []
     @State private var selectedAlbum: Album?
@@ -17,7 +17,7 @@ struct ArtistDetailView: View {
                 ProgressView()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if let errorMessage {
-                ContentUnavailableView("Unable to Load Artist", systemImage: "exclamationmark.triangle", description: Text(errorMessage))
+                ContentUnavailableView("Unable to Load Genre", systemImage: "music.note.list", description: Text(errorMessage))
             } else {
                 ScrollView {
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 150, maximum: 300), spacing: 16)], spacing: 16) {
@@ -35,7 +35,7 @@ struct ArtistDetailView: View {
                 }
             }
         }
-        .navigationTitle(artist)
+        .navigationTitle(genre)
         .navigationDestination(item: $selectedAlbum) { album in
             AlbumDetailView(album: album)
         }
@@ -55,7 +55,7 @@ struct ArtistDetailView: View {
         errorMessage = nil
 
         do {
-            albums = try await client.getArtistAlbums(artist: artist)
+            albums = try await client.getGenreAlbums(genre: genre)
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -63,5 +63,3 @@ struct ArtistDetailView: View {
         isLoading = false
     }
 }
-
-typealias ArtistAlbumsView = ArtistDetailView
