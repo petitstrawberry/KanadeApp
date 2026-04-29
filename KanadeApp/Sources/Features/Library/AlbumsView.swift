@@ -28,7 +28,21 @@ struct AlbumsView: View {
                                 AlbumTile(
                                     album: allSongsAlbum,
                                     appState: appState,
-                                    mediaClient: nil
+                                    mediaClient: nil,
+                                    coverOverride: {
+                                        AnyView(
+                                            ZStack {
+                                                LinearGradient(
+                                                    colors: [.purple, .pink, .orange],
+                                                    startPoint: .topLeading,
+                                                    endPoint: .bottomTrailing
+                                                )
+                                                Image(systemName: "music.note.house.fill")
+                                                    .font(.system(size: 40, weight: .semibold))
+                                                    .foregroundStyle(.white.opacity(0.8))
+                                            }
+                                        )
+                                    }
                                 )
                             }
                             .buttonStyle(.plain)

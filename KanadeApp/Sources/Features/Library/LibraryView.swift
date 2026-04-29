@@ -5,16 +5,23 @@ struct AlbumTile: View {
     let album: Album
     let appState: AppState?
     let mediaClient: MediaClient?
+    var coverOverride: (() -> AnyView)?
 
     @State private var isHovered = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             ZStack {
-                ArtworkView(mediaClient: mediaClient, albumId: album.id)
-                    .aspectRatio(1, contentMode: .fit)
-                    .clipShape(RoundedRectangle(cornerRadius: 12))
-                    .contentShape(RoundedRectangle(cornerRadius: 12))
+                Group {
+                    if let coverOverride {
+                        coverOverride()
+                    } else {
+                        ArtworkView(mediaClient: mediaClient, albumId: album.id)
+                    }
+                }
+                .aspectRatio(1, contentMode: .fit)
+                .clipShape(RoundedRectangle(cornerRadius: 12))
+                .contentShape(RoundedRectangle(cornerRadius: 12))
 
                 if isHovered {
                     artworkActions
