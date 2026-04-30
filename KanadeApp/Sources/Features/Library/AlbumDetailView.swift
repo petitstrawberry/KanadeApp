@@ -9,6 +9,7 @@ struct AlbumDetailView: View {
     @State private var tracks: [Track] = []
     @State private var isLoading = false
     @State private var errorMessage: String?
+    @State private var addToPlaylistTarget: AddToPlaylistTarget? = nil
 
     var body: some View {
         ScrollView {
@@ -27,6 +28,19 @@ struct AlbumDetailView: View {
                             TrackRow(track: track, isPlaying: currentTrackId == track.id, onTap: {
                                 playTrack(at: index)
                             }, appState: appState)
+                            .contextMenu {
+                                Button {
+                                    appState.performAddToQueue(track)
+                                } label: {
+                                    Label("Add to Queue", systemImage: "plus.circle")
+                                }
+
+                                Button {
+                                    addToPlaylistTarget = AddToPlaylistTarget(trackIds: [track.id])
+                                } label: {
+                                    Label("Add to Playlist", systemImage: "text.badge.plus")
+                                }
+                            }
                         }
                     }
                 }
@@ -35,6 +49,11 @@ struct AlbumDetailView: View {
         }
         .task {
             await loadTracks()
+        }
+        .sheet(item: $addToPlaylistTarget) { target in
+            AddToPlaylistPickerSheet(trackIds: target.trackIds) {
+                await loadTracks()
+            }
         }
     }
 
@@ -129,4 +148,9 @@ struct AlbumDetailView: View {
             appState.performReplaceAndPlay(tracks: tracks, index: index)
         }
     }
+}
+
+struct AddToPlaylistTarget: Identifiable {
+    let id = UUID()
+    let trackIds: [String]
 }

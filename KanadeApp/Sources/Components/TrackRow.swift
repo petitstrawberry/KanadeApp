@@ -6,6 +6,7 @@ struct TrackRow: View {
     let isPlaying: Bool
     let onTap: () -> Void
     var appState: AppState?
+    var displayNumber: Int? = nil
 
     @State private var isHovered = false
 
@@ -83,7 +84,7 @@ struct TrackRow: View {
     }
 
     private var trackNumberText: String {
-        let num = track.trackNumber ?? 0
+        let num = displayNumber ?? track.trackNumber ?? 0
         return num > 0 ? "\(num)" : "—"
     }
 }
