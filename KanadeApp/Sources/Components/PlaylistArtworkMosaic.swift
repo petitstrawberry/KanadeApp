@@ -64,14 +64,10 @@ struct PlaylistArtworkMosaic: View {
 
     private var fallback: some View {
         ZStack {
-            LinearGradient(
-                colors: fallbackGradient,
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
+            Rectangle().fill(Color.secondary.opacity(0.12))
             Image(systemName: fallbackSystemImage)
                 .font(.system(size: size * 0.4, weight: .semibold))
-                .foregroundStyle(.white.opacity(0.8))
+                .foregroundStyle(.secondary)
         }
     }
 }
@@ -97,14 +93,10 @@ private struct MosaicTile: View {
 
     var body: some View {
         Rectangle()
-            .fill(.quaternary)
+            .fill(Color.secondary.opacity(0.08))
             .overlay {
                 if let displayedImage {
                     rendered(displayedImage)
-                } else {
-                    Image(systemName: "music.note")
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(.secondary)
                 }
             }
             .clipped()

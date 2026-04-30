@@ -12,7 +12,10 @@ struct PlaylistDetailView: View {
     @State private var isLoading = false
     @State private var errorMessage: String?
     @State private var isShowingEditor = false
+    @State private var isSelecting = false
+    @State private var selectedIds: Set<String> = []
     @State private var addToPlaylistTarget: AddToPlaylistTarget? = nil
+    @State private var draggingTrackId: String? = nil
 
     init(playlist: Playlist) {
         self.playlist = playlist
@@ -20,79 +23,73 @@ struct PlaylistDetailView: View {
     }
 
     var body: some View {
-        Group {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
-                    header
+        ScrollView {
+            VStack(alignment: .leading, spacing: 20) {
+                header
 
-                    if currentPlaylist.kind == .smart {
-                        Text("Tracks are computed from the smart filter and update automatically.")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                    }
+                if currentPlaylist.kind == .smart {
+                    Text("Tracks are computed from the smart filter and update automatically.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
 
-                    if let errorMessage {
-                        ContentUnavailableView("Unable to Load Tracks", systemImage: "exclamationmark.triangle", description: Text(errorMessage))
-                            .frame(maxWidth: .infinity, minHeight: 240)
-                    } else if tracks.isEmpty && !isLoading {
-                        Text(currentPlaylist.kind == .smart ? "No tracks match the filter." : "No tracks in playlist.")
-                            .foregroundStyle(.secondary)
-                            .padding(.top, 40)
-                            .frame(maxWidth: .infinity, alignment: .center)
-                    } else if isLoading && tracks.isEmpty {
-                        ProgressView()
-                            .frame(maxWidth: .infinity, minHeight: 240)
-                    } else {
-                        LazyVStack(spacing: 8) {
-                            ForEach(Array(tracks.enumerated()), id: \.element.id) { index, track in
-                                TrackRow(track: track, isPlaying: currentTrackId == track.id, onTap: {
-                                    playTrack(at: index)
-                                }, appState: appState, displayNumber: index + 1)
-                                .contextMenu {
-                                    Button {
-                                        appState.performAddToQueue(track)
-                                    } label: {
-                                        Label("Add to Queue", systemImage: "plus.circle")
-                                    }
-
-                                    Button {
-                                        addToPlaylistTarget = AddToPlaylistTarget(trackIds: [track.id])
-                                    } label: {
-                                        Label("Add to Playlist", systemImage: "text.badge.plus")
-                                    }
-
-                                    if currentPlaylist.kind == .normal {
-                                        Button(role: .destructive) {
-                                            removeTrack(at: index)
-                                        } label: {
-                                            Label("Remove from Playlist", systemImage: "minus.circle")
+                if let errorMessage {
+                    ContentUnavailableView("Unable to Load Tracks", systemImage: "exclamationmark.triangle", description: Text(errorMessage))
+                        .frame(maxWidth: .infinity, minHeight: 240)
+                } else if tracks.isEmpty && !isLoading {
+                    Text(currentPlaylist.kind == .smart ? "No tracks match the filter." : "No tracks in playlist.")
+                        .foregroundStyle(.secondary)
+                        .padding(.top, 40)
+                        .frame(maxWidth: .infinity, alignment: .center)
+                } else if isLoading && tracks.isEmpty {
+                    ProgressView()
+                        .frame(maxWidth: .infinity, minHeight: 240)
+                } else {
+                    LazyVStack(spacing: 8) {
+                        ForEach(Array(tracks.enumerated()), id: \.element.id) { index, track in
+                            selectableRow(track: track, index: index)
+                                .opacity(draggingTrackId == track.id ? 0.4 : 1)
+                                .if(currentPlaylist.kind == .normal && !isSelecting) { view in
+                                    view
+                                        .draggable(track.id) {
+                                            dragPreview(for: track)
                                         }
-                                    }
+                                        .dropDestination(for: String.self) { droppedIds, _ in
+                                            guard let droppedId = droppedIds.first,
+                                                  let fromIndex = tracks.firstIndex(where: { $0.id == droppedId }),
+                                                  let toIndex = tracks.firstIndex(where: { $0.id == track.id }),
+                                                  fromIndex != toIndex else { return false }
+                                            moveTrack(from: fromIndex, to: toIndex)
+                                            return true
+                                        }
                                 }
-                            }
                         }
                     }
                 }
-                .padding()
             }
+            .padding()
         }
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
-                Menu {
-                    Button {
-                        isShowingEditor = true
-                    } label: {
-                        Label("Edit Playlist", systemImage: "pencil")
-                    }
-
-                    Button(role: .destructive) {
-                        appState.client?.deletePlaylist(currentPlaylist.id)
-                        dismiss()
-                    } label: {
-                        Label("Delete Playlist", systemImage: "trash")
-                    }
+                Button {
+                    isShowingEditor = true
                 } label: {
                     Image(systemName: "ellipsis.circle")
+                }
+            }
+
+            if !tracks.isEmpty {
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        if isSelecting {
+                            isSelecting = false
+                            selectedIds.removeAll()
+                        } else {
+                            isSelecting = true
+                        }
+                    } label: {
+                        Label(isSelecting ? "Cancel" : "Select", systemImage: isSelecting ? "xmark.circle" : "checklist")
+                    }
                 }
             }
         }
@@ -108,6 +105,139 @@ struct PlaylistDetailView: View {
         }
         .task {
             await loadTracks()
+        }
+        .overlay(alignment: .bottom) {
+            if isSelecting {
+                selectionActionBar
+            }
+        }
+    }
+
+    private var selectionActionBar: some View {
+        HStack(spacing: 10) {
+            Button {
+                if selectedIds.count == tracks.count {
+                    selectedIds.removeAll()
+                } else {
+                    selectedIds = Set(tracks.map(\.id))
+                }
+            } label: {
+                Image(systemName: selectedIds.count == tracks.count ? "xmark.circle" : "checkmark.circle")
+                    .font(.body)
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+
+            Spacer()
+
+            if !selectedIds.isEmpty {
+                Menu {
+                    Button {
+                        let selected = tracks.filter { selectedIds.contains($0.id) }
+                        appState.performAddTracksToQueue(selected)
+                    } label: {
+                        Label("Add to Queue", systemImage: "plus.circle")
+                    }
+
+                    Button {
+                        addToPlaylistTarget = AddToPlaylistTarget(trackIds: Array(selectedIds))
+                        isSelecting = false
+                        selectedIds.removeAll()
+                    } label: {
+                        Label("Add to Playlist", systemImage: "text.badge.plus")
+                    }
+                } label: {
+                    Label("Add", systemImage: "plus")
+                        .font(.subheadline.weight(.semibold))
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+
+                if currentPlaylist.kind == .normal {
+                    Button(role: .destructive) {
+                        removeSelectedTracks()
+                    } label: {
+                        Label("Remove", systemImage: "minus.circle")
+                            .font(.subheadline.weight(.semibold))
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                }
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .background(.regularMaterial)
+        .clipShape(RoundedRectangle(cornerRadius: 16))
+        .shadow(color: .black.opacity(0.15), radius: 8, y: 4)
+        .frame(maxWidth: .infinity)
+        .padding(.bottom, 8)
+    }
+
+    @ViewBuilder
+    private func dragPreview(for track: Track) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: "music.note")
+                .foregroundStyle(.secondary)
+            Text(track.title ?? "Untitled")
+                .font(.subheadline)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+    }
+
+    @ViewBuilder
+    private func selectableRow(track: Track, index: Int) -> some View {
+        let isSelected = selectedIds.contains(track.id)
+
+        Button {
+            if isSelecting {
+                if isSelected {
+                    selectedIds.remove(track.id)
+                } else {
+                    selectedIds.insert(track.id)
+                }
+            } else {
+                playTrack(at: index)
+            }
+        } label: {
+            HStack(spacing: 0) {
+                if isSelecting {
+                    Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                        .font(.title3)
+                        .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
+                        .frame(width: 32)
+                        .padding(.trailing, 4)
+                }
+
+                TrackRow(track: track, isPlaying: currentTrackId == track.id, onTap: {}, appState: appState, displayNumber: index + 1)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .contextMenu {
+            Button {
+                appState.performAddToQueue(track)
+            } label: {
+                Label("Add to Queue", systemImage: "plus.circle")
+            }
+
+            Button {
+                addToPlaylistTarget = AddToPlaylistTarget(trackIds: [track.id])
+            } label: {
+                Label("Add to Playlist", systemImage: "text.badge.plus")
+            }
+
+            if currentPlaylist.kind == .normal {
+                Divider()
+
+                Button(role: .destructive) {
+                    removeTrack(at: index)
+                } label: {
+                    Label("Remove from Playlist", systemImage: "minus.circle")
+                }
+            }
         }
     }
 
@@ -156,8 +286,18 @@ struct PlaylistDetailView: View {
                     .controlSize(.small)
                     .disabled(tracks.isEmpty)
 
-                    Button {
-                        appState.performAddTracksToQueue(tracks)
+                    Menu {
+                        Button {
+                            appState.performAddTracksToQueue(tracks)
+                        } label: {
+                            Label("Add to Queue", systemImage: "plus.circle")
+                        }
+
+                        Button {
+                            addToPlaylistTarget = AddToPlaylistTarget(trackIds: tracks.map(\.id))
+                        } label: {
+                            Label("Add to Playlist", systemImage: "text.badge.plus")
+                        }
                     } label: {
                         Label("Add", systemImage: "plus")
                             .font(.subheadline.weight(.semibold))
@@ -228,10 +368,43 @@ struct PlaylistDetailView: View {
         }
     }
 
+    private func moveTrack(from source: Int, to destination: Int) {
+        guard source != destination else { return }
+        guard tracks.indices.contains(source), tracks.indices.contains(destination) else { return }
+        appState.client?.movePlaylistTrack(playlistId: currentPlaylist.id, from: source, to: destination)
+        let track = tracks.remove(at: source)
+        tracks.insert(track, at: destination)
+    }
+
     private func removeTrack(at index: Int) {
         guard tracks.indices.contains(index) else { return }
-        let track = tracks[index]
         appState.client?.removePlaylistTrack(playlistId: currentPlaylist.id, position: index)
         tracks.remove(at: index)
+    }
+
+    private func removeSelectedTracks() {
+        let sortedIndices = tracks.enumerated()
+            .filter { selectedIds.contains($0.element.id) }
+            .map(\.offset)
+            .sorted(by: >)
+
+        for index in sortedIndices {
+            appState.client?.removePlaylistTrack(playlistId: currentPlaylist.id, position: index)
+            tracks.remove(at: index)
+        }
+
+        selectedIds.removeAll()
+        isSelecting = false
+    }
+}
+
+extension View {
+    @ViewBuilder
+    func `if`<Content: View>(_ condition: Bool, transform: (Self) -> Content) -> some View {
+        if condition {
+            transform(self)
+        } else {
+            self
+        }
     }
 }
