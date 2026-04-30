@@ -245,19 +245,18 @@ struct ContentView: View {
 
     @ToolbarContentBuilder
     var iphoneGlobalToolbarItems: some ToolbarContent {
-        ToolbarItem(placement: .topBarTrailing) {
+        ToolbarItem(placement: .topBarLeading) {
+            Button {
+            showSettings = true
+            } label: {
+                Image(systemName: "gearshape")
+            }
+        }
+        ToolbarItem(placement: .topBarLeading) {
             Button {
                 showNodes = true
             } label: {
                 Image(systemName: "speaker.wave.2")
-            }
-        }
-
-        ToolbarItem(placement: .topBarLeading) {
-            Button {
-                showSettings = true
-            } label: {
-                Image(systemName: "gearshape")
             }
         }
     }
