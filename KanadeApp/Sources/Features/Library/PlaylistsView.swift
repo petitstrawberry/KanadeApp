@@ -81,7 +81,6 @@ struct PlaylistsView: View {
                             }
                         }
                     }
-                    // .listRowSeparator(.hidden)
                 }
                 .listStyle(.plain)
                 #if os(iOS)

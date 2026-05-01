@@ -95,6 +95,7 @@ struct NowPlayingBar: View {
         .sheet(isPresented: $showNodes) {
             NavigationStack {
                 NodesView()
+                    #if os(macOS)
                     .toolbar {
                         ToolbarItem(placement: .cancellationAction) {
                             Button("Close") {
@@ -102,6 +103,7 @@ struct NowPlayingBar: View {
                             }
                         }
                     }
+                    #endif
             }
             .environment(appState)
             #if os(iOS)
