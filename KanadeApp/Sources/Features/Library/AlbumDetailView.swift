@@ -3,177 +3,97 @@ import KanadeKit
 
 struct AlbumDetailView: View {
     @Environment(AppState.self) private var appState
+    #if os(iOS)
+    @Environment(\.editMode) private var editMode
+    #endif
+    #if os(macOS)
+    @State private var isEditingMac = false
+    #endif
 
     let album: Album
 
     @State private var tracks: [Track] = []
     @State private var isLoading = false
     @State private var errorMessage: String?
-    @State private var isSelecting = false
     @State private var selectedIds: Set<String> = []
     @State private var addToPlaylistTarget: AddToPlaylistTarget? = nil
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
+        List(selection: selectionBinding) {
+            Section {
                 header
+                    .trackListRowStyle(top: 16, leading: 16, bottom: 16, trailing: 16)
+            }
 
+            Section {
                 if let errorMessage {
                     ContentUnavailableView("Unable to Load Album", systemImage: "exclamationmark.triangle", description: Text(errorMessage))
                         .frame(maxWidth: .infinity, minHeight: 240)
+                        .trackListRowStyle()
                 } else if tracks.isEmpty {
                     ProgressView()
                         .frame(maxWidth: .infinity, minHeight: 240)
+                        .trackListRowStyle()
                 } else {
-                    LazyVStack(spacing: 8) {
-                        ForEach(Array(tracks.enumerated()), id: \.element.id) { index, track in
-                            selectableRow(track: track, index: index)
+                    ForEach(Array(tracks.enumerated()), id: \.element.id) { index, track in
+                        TrackRow(track: track, isPlaying: currentTrackId == track.id, onTap: {
+                            playTrack(at: index)
+                        }, appState: appState, isEditing: isEditing)
+                        .tag(track.id)
+                        .trackListRowStyle()
+                        .contextMenu {
+                            Button {
+                                appState.performAddToQueue(track)
+                            } label: {
+                                Label("Add to Queue", systemImage: "plus.circle")
+                            }
+
+                            Button {
+                                addToPlaylistTarget = AddToPlaylistTarget(trackIds: [track.id])
+                            } label: {
+                                Label("Add to Playlist", systemImage: "text.badge.plus")
+                            }
                         }
                     }
                 }
             }
-            .padding()
         }
+        .listStyle(.plain)
+        .scrollContentBackground(.hidden)
         .toolbar {
-            if isSelecting {
-                #if os(iOS)
-                ToolbarItem(placement: .topBarLeading) {
-                    Button(selectedIds.count == tracks.count ? "Deselect All" : "Select All") {
-                        if selectedIds.count == tracks.count {
-                            selectedIds.removeAll()
-                        } else {
-                            selectedIds = Set(tracks.map(\.id))
-                        }
-                    }
-                }
-
-                ToolbarItem(placement: .primaryAction) {
-                    Button("Cancel") {
-                        isSelecting = false
-                        selectedIds.removeAll()
-                    }
-                }
-
-                ToolbarItemGroup(placement: .bottomBar) {
-                    selectionMenuContent
-                        .disabled(selectedIds.isEmpty)
-                    Spacer()
-                }
-                #else
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") {
-                        isSelecting = false
-                        selectedIds.removeAll()
-                    }
-                }
-
-                ToolbarItem(placement: .primaryAction) {
-                    Button(selectedIds.count == tracks.count ? "Deselect All" : "Select All") {
-                        if selectedIds.count == tracks.count {
-                            selectedIds.removeAll()
-                        } else {
-                            selectedIds = Set(tracks.map(\.id))
-                        }
-                    }
-                }
-
-                ToolbarItem(placement: .primaryAction) {
-                    Menu {
-                        selectionMenuContent
-                    } label: {
-                        Label("Actions", systemImage: "ellipsis.circle")
-                    }
-                    .disabled(selectedIds.isEmpty)
-                }
-                #endif
-            } else if !tracks.isEmpty {
-                ToolbarItem(placement: .primaryAction) {
-                    Button {
-                        isSelecting = true
-                    } label: {
-                        Label("Select", systemImage: "checklist")
-                    }
-                }
+            TrackListEditToolbar(
+                canEdit: !tracks.isEmpty,
+                isEditing: isEditing,
+                allSelected: trackListAllSelected(selectedIds: selectedIds, trackIds: tracks.map(\.id)),
+                hasSelection: !selectedIds.isEmpty,
+                onToggleEditMac: toggleEditMode,
+                onToggleSelectAll: {
+                    toggleTrackListSelection(selectedIds: &selectedIds, trackIds: tracks.map(\.id))
+                },
+                onAddToQueue: {
+                    appState.performAddTracksToQueue(selectedTracks(from: tracks, selectedIds: selectedIds))
+                },
+                onAddToPlaylist: {
+                    addToPlaylistTarget = AddToPlaylistTarget(trackIds: Array(selectedIds))
+                    selectedIds.removeAll()
+                    setEditing(false)
+                },
+                onRemove: nil
+            )
+        }
+        .shellChromeSuppressed(isEditing, reason: .editing)
+        .onChange(of: isEditing) {
+            if !isEditing {
+                selectedIds.removeAll()
             }
         }
-        .onChange(of: isSelecting) { appState.isInSelectionMode = isSelecting }
-        .navigationBarBackButtonHidden(isSelecting)
+        .navigationBarBackButtonHidden(isEditing)
         .task {
             await loadTracks()
         }
         .sheet(item: $addToPlaylistTarget) { target in
             AddToPlaylistPickerSheet(trackIds: target.trackIds) {
                 await loadTracks()
-            }
-        }
-    }
-
-    // MARK: - Selection Toolbar
-
-    @ViewBuilder
-    private var selectionMenuContent: some View {
-        Button {
-            let selected = tracks.filter { selectedIds.contains($0.id) }
-            appState.performAddTracksToQueue(selected)
-        } label: {
-            Label("Add to Queue", systemImage: "plus.circle")
-        }
-
-        Button {
-            addToPlaylistTarget = AddToPlaylistTarget(trackIds: Array(selectedIds))
-            isSelecting = false
-            selectedIds.removeAll()
-        } label: {
-            Label("Add to Playlist", systemImage: "text.badge.plus")
-        }
-    }
-
-    @ViewBuilder
-    private func selectableRow(track: Track, index: Int) -> some View {
-        let isSelected = selectedIds.contains(track.id)
-
-        HStack(spacing: 0) {
-            if isSelecting {
-                Button {
-                    if isSelected {
-                        selectedIds.remove(track.id)
-                    } else {
-                        selectedIds.insert(track.id)
-                    }
-                } label: {
-                    Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                        .font(.title3)
-                        .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
-                        .frame(width: 32)
-                        .padding(.trailing, 4)
-                }
-                .buttonStyle(.plain)
-            }
-
-            TrackRow(track: track, isPlaying: currentTrackId == track.id, onTap: {
-                if isSelecting {
-                    if isSelected {
-                        selectedIds.remove(track.id)
-                    } else {
-                        selectedIds.insert(track.id)
-                    }
-                } else {
-                    playTrack(at: index)
-                }
-            }, appState: appState)
-        }
-        .contentShape(Rectangle())
-        .contextMenu {
-            Button {
-                appState.performAddToQueue(track)
-            } label: {
-                Label("Add to Queue", systemImage: "plus.circle")
-            }
-
-            Button {
-                addToPlaylistTarget = AddToPlaylistTarget(trackIds: [track.id])
-            } label: {
-                Label("Add to Playlist", systemImage: "text.badge.plus")
             }
         }
     }
@@ -206,11 +126,9 @@ struct AlbumDetailView: View {
                         Button {
                             appState.performReplaceAndPlay(tracks: tracks, index: 0)
                         } label: {
-                            Label("Play", systemImage: "play.fill")
-                                .font(.subheadline.weight(.semibold))
+                            HeaderActionButtonLabel(title: "Play", systemImage: "play.fill", style: .primary)
                         }
-                        .buttonStyle(.borderedProminent)
-                        .controlSize(.small)
+                        .buttonStyle(.plain)
 
                         Menu {
                             Button {
@@ -225,11 +143,9 @@ struct AlbumDetailView: View {
                                 Label("Add to Playlist", systemImage: "text.badge.plus")
                             }
                         } label: {
-                            Label("Add", systemImage: "plus")
-                                .font(.subheadline.weight(.semibold))
+                            HeaderActionButtonLabel(title: "Add", systemImage: "plus", style: .secondary)
                         }
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
+                        .buttonStyle(.plain)
                     }
                 } else if errorMessage == nil {
                     ProgressView("Loading tracks")
@@ -279,9 +195,28 @@ struct AlbumDetailView: View {
             appState.performReplaceAndPlay(tracks: tracks, index: index)
         }
     }
-}
 
-struct AddToPlaylistTarget: Identifiable {
-    let id = UUID()
-    let trackIds: [String]
+    private var isEditing: Bool {
+        #if os(iOS)
+        editMode?.wrappedValue == .active
+        #else
+        isEditingMac
+        #endif
+    }
+
+    private func setEditing(_ isEditing: Bool) {
+        #if os(iOS)
+        editMode?.wrappedValue = isEditing ? .active : .inactive
+        #else
+        isEditingMac = isEditing
+        #endif
+    }
+
+    private func toggleEditMode() {
+        setEditing(!isEditing)
+    }
+
+    private var selectionBinding: Binding<Set<String>>? {
+        isEditing ? $selectedIds : nil
+    }
 }

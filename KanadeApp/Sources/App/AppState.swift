@@ -185,15 +185,9 @@ final class AppState {
         controlTarget == .local
     }
 
-    var isInSelectionMode = false
-
     var shouldShowMiniPlayer: Bool {
         effectiveCurrentTrack != nil && (isConnected || localPlayback != nil)
     }
-
-    #if os(macOS)
-    var showQueue = false
-    #endif
 
     private var localPlaybackSessionUpdate: LocalPlaybackSessionUpdate? {
         localPlayback?.sessionUpdate

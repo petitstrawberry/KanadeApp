@@ -7,56 +7,22 @@ struct TrackRow: View {
     let onTap: () -> Void
     var appState: AppState?
     var displayNumber: Int? = nil
+    var isEditing: Bool = false
 
     @State private var isHovered = false
 
     var body: some View {
         HStack(spacing: 12) {
-            Button(action: onTap) {
-                HStack(spacing: 12) {
-                    ZStack {
-                        RoundedRectangle(cornerRadius: 8)
-                            .fill(isPlaying ? Color.accentColor.opacity(0.16) : Color.secondary.opacity(0.08))
-                            .frame(width: 34, height: 34)
-
-                        if isPlaying {
-                            PlayingIndicator()
-                        } else {
-                            Text(trackNumberText)
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(track.title ?? "Untitled")
-                            .font(.body.weight(isPlaying ? .semibold : .regular))
-                            .foregroundStyle(isPlaying ? Color.accentColor : Color.primary)
-                            .lineLimit(1)
-
-                        Text(track.artist ?? "Unknown Artist")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                    }
-
-                    Spacer(minLength: 12)
-
-                    Text(formattedDuration)
-                        .font(.footnote.monospacedDigit())
-                        .foregroundStyle(.secondary)
+            if isEditing {
+                rowContent
+            } else {
+                Button(action: onTap) {
+                    rowContent
                 }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-                .background(
-                    RoundedRectangle(cornerRadius: 14)
-                        .fill(isPlaying ? Color.accentColor.opacity(0.08) : (isHovered ? Color.primary.opacity(0.06) : Color.clear))
-                )
-                .contentShape(RoundedRectangle(cornerRadius: 14))
+                .buttonStyle(.plain)
             }
-            .buttonStyle(.plain)
 
-            if isHovered && appState != nil {
+            if !isEditing && isHovered && appState != nil {
                 Button {
                     appState?.performAddToQueue(track)
                 } label: {
@@ -74,6 +40,46 @@ struct TrackRow: View {
             isHovered = hovering
         }
         .animation(.easeInOut(duration: 0.2), value: isHovered)
+    }
+
+    private var rowContent: some View {
+        HStack(spacing: 8) {
+            ZStack {
+                if isPlaying {
+                    PlayingIndicator()
+                } else {
+                    Text(trackNumberText)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .frame(width: 24, alignment: .center)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(track.title ?? "Untitled")
+                    .font(.body.weight(isPlaying ? .semibold : .regular))
+                    .foregroundStyle(isPlaying ? Color.accentColor : Color.primary)
+                    .lineLimit(1)
+
+                Text(track.artist ?? "Unknown Artist")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+
+            Spacer(minLength: 12)
+
+            Text(formattedDuration)
+                .font(.footnote.monospacedDigit())
+                .foregroundStyle(.secondary)
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 8)
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(isPlaying ? Color.accentColor.opacity(0.08) : (isHovered ? Color.primary.opacity(0.06) : Color.clear))
+        )
+        .contentShape(Rectangle())
     }
 
     private var formattedDuration: String {

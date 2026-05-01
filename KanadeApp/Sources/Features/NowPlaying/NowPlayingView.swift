@@ -5,13 +5,18 @@ import Foundation
 struct NowPlayingView: View {
     @Environment(AppState.self) private var appState
     @Environment(\.dismiss) private var dismiss
+    #if os(macOS)
+    @Environment(ShellUIState.self) private var shellUI
+    #endif
 
     @State private var seekPosition: Double = 0
     @State private var volumeValue: Double = 0
     @State private var isSeeking = false
     @State private var pendingSeekTarget: Double?
     @State private var isAdjustingVolume = false
+    #if os(iOS)
     @State private var showQueue = false
+    #endif
     @State private var dominantColor: Color = .clear
 
     private var playbackState: AppState.EffectivePlaybackState {
@@ -252,12 +257,6 @@ struct NowPlayingView: View {
         .padding(24)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(backgroundView)
-        .sheet(isPresented: $showQueue) {
-            NavigationStack {
-                QueueView()
-            }
-            .environment(appState)
-        }
         .navigationBarBackButtonHidden()
         .onAppear {
             syncSeekPosition()
@@ -468,7 +467,9 @@ struct NowPlayingView: View {
             Spacer()
 
             Button {
-                showQueue = true
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    shellUI.isQueuePanelPresented = true
+                }
             } label: {
                 Image(systemName: "list.bullet")
                     .font(.headline)

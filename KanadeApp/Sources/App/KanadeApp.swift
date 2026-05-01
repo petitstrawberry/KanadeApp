@@ -3,12 +3,14 @@ import SwiftUI
 @main
 struct KanadeApp: App {
     @State private var appState = AppState()
+    @State private var shellUI = ShellUIState()
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some Scene {
         WindowGroup {
             ContentView()
                 .environment(appState)
+                .environment(shellUI)
                 .task {
                     appState.startupConnectIfNeeded()
                 }

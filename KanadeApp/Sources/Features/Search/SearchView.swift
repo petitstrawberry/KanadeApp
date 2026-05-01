@@ -41,6 +41,7 @@ struct SearchView: View {
                         TrackRow(track: track, isPlaying: currentTrackId == track.id, onTap: {
                             playTrack(at: index)
                         }, appState: appState)
+                        .trackListRowStyle()
                     }
                 }
             }

@@ -3,6 +3,7 @@ import KanadeKit
 
 struct ContentView: View {
     @Environment(AppState.self) private var appState
+    @Environment(ShellUIState.self) private var shellUI
     @State private var sidebarSelection: SidebarItem? = .library(.albums)
     @State private var showNowPlaying = false
     @State private var showNodes = false
@@ -56,7 +57,7 @@ struct ContentView: View {
         #else
         HStack(spacing: 0) {
             macContent
-            if appState.showQueue {
+            if shellUI.isQueuePanelPresented {
                 QueueResizer(width: $queueWidth)
                 QueueView()
                     .frame(width: queueWidth)
@@ -67,11 +68,11 @@ struct ContentView: View {
             ToolbarItem(id: "toggleQueue", placement: .primaryAction) {
                 Button {
                     withAnimation(.easeInOut(duration: 0.2)) {
-                        appState.showQueue.toggle()
+                        shellUI.isQueuePanelPresented.toggle()
                     }
                 } label: {
                     Image(systemName: "list.bullet")
-                        .foregroundStyle(appState.showQueue ? Color.accentColor : Color.secondary)
+                        .foregroundStyle(shellUI.isQueuePanelPresented ? Color.accentColor : Color.secondary)
                 }
                 .help("Toggle Queue")
             }
@@ -94,7 +95,7 @@ struct ContentView: View {
                     connectionBanner
                 }
                 .safeAreaInset(edge: .bottom, spacing: 0) {
-            if appState.shouldShowMiniPlayer && !appState.isInSelectionMode {
+            if appState.shouldShowMiniPlayer && !shellUI.isChromeSuppressed {
                         NowPlayingBar(placement: .macFloating, onActivate: {
                             #if os(iOS)
                             showNowPlaying = true
@@ -202,28 +203,28 @@ struct ContentView: View {
                     AlbumsView()
                         .toolbar { iphoneGlobalToolbarItems }
                 }
-                .toolbar(appState.isInSelectionMode ? .hidden : .visible, for: .tabBar)
+                .toolbar(shellUI.isChromeSuppressed ? .hidden : .visible, for: .tabBar)
             }
             Tab(LibrarySection.artists.title, systemImage: LibrarySection.artists.systemImage) {
                 NavigationStack {
                     ArtistsView()
                         .toolbar { iphoneGlobalToolbarItems }
                 }
-                .toolbar(appState.isInSelectionMode ? .hidden : .visible, for: .tabBar)
+                .toolbar(shellUI.isChromeSuppressed ? .hidden : .visible, for: .tabBar)
             }
             Tab(LibrarySection.genres.title, systemImage: LibrarySection.genres.systemImage) {
                 NavigationStack {
                     GenresView()
                         .toolbar { iphoneGlobalToolbarItems }
                 }
-                .toolbar(appState.isInSelectionMode ? .hidden : .visible, for: .tabBar)
+                .toolbar(shellUI.isChromeSuppressed ? .hidden : .visible, for: .tabBar)
             }
             Tab(LibrarySection.playlists.title, systemImage: LibrarySection.playlists.systemImage) {
                 NavigationStack {
                     PlaylistsView()
                         .toolbar { iphoneGlobalToolbarItems }
                 }
-                .toolbar(appState.isInSelectionMode ? .hidden : .visible, for: .tabBar)
+                .toolbar(shellUI.isChromeSuppressed ? .hidden : .visible, for: .tabBar)
             }
             Tab(role: .search) {
                 NavigationStack {
@@ -232,10 +233,10 @@ struct ContentView: View {
                             iphoneGlobalToolbarItems
                         }
                 }
-                .toolbar(appState.isInSelectionMode ? .hidden : .visible, for: .tabBar)
+                .toolbar(shellUI.isChromeSuppressed ? .hidden : .visible, for: .tabBar)
             }
         }
-        .tabViewBottomAccessory(isEnabled: !appState.isInSelectionMode) {
+        .tabViewBottomAccessory(isEnabled: !shellUI.isChromeSuppressed) {
             if appState.shouldShowMiniPlayer {
                 Button {
                     showNowPlaying = true
@@ -250,7 +251,7 @@ struct ContentView: View {
 
     @ToolbarContentBuilder
     var iphoneGlobalToolbarItems: some ToolbarContent {
-        if !appState.isInSelectionMode {
+        if !shellUI.isChromeSuppressed {
             ToolbarItem(placement: .topBarLeading) {
                 Button {
                 showSettings = true

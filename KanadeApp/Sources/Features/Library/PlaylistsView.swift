@@ -4,6 +4,13 @@ import KanadeKit
 struct PlaylistsView: View {
     @Environment(AppState.self) private var appState
 
+    #if os(iOS)
+    @State private var editMode: EditMode = .inactive
+    #endif
+    #if os(macOS)
+    @State private var isEditingMac = false
+    #endif
+
     @State private var playlists: [Playlist] = []
     @State private var isLoading = false
     @State private var errorMessage: String?
@@ -11,7 +18,6 @@ struct PlaylistsView: View {
 
     @State private var editorPlaylist: Playlist? = nil
     @State private var isCreatingPlaylist = false
-    @State private var isSelecting = false
     @State private var selectedIds: Set<String> = []
 
     var body: some View {
@@ -22,16 +28,37 @@ struct PlaylistsView: View {
             } else if let errorMessage {
                 ContentUnavailableView("Unable to Load Playlists", systemImage: "square.stack", description: Text(errorMessage))
             } else {
-                List {
+                List(selection: selectionBinding) {
+                    Button {
+                        isCreatingPlaylist = true
+                    } label: {
+                        HStack(spacing: 12) {
+                            RoundedRectangle(cornerRadius: 8)
+                                .fill(.tint.opacity(0.12))
+                                .frame(width: 48, height: 48)
+                                .overlay {
+                                    Image(systemName: "plus")
+                                        .font(.title3.weight(.semibold))
+                                        .foregroundStyle(.tint)
+                                }
+
+                            Text("New Playlist")
+                                .font(.headline)
+                                .foregroundStyle(.primary)
+                        }
+                    }
+
                     ForEach(playlists) { playlist in
-                        if isSelecting {
-                            selectableRow(for: playlist)
+                        if isEditing {
+                            playlistRowContent(for: playlist)
+                                .tag(playlist.id)
                         } else {
                             NavigationLink {
                                 PlaylistDetailView(playlist: playlist)
                             } label: {
                                 playlistRowContent(for: playlist)
                             }
+                            .tag(playlist.id)
                             .swipeActions(edge: .trailing, allowsFullSwipe: true) {
                                 Button(role: .destructive) {
                                     deletePlaylist(playlist)
@@ -50,12 +77,21 @@ struct PlaylistsView: View {
                     }
                 }
                 .listStyle(.plain)
+                #if os(iOS)
+                .environment(\.editMode, $editMode)
+                #endif
             }
         }
         .navigationTitle("Playlists")
         .toolbar {
-            if isSelecting {
-                #if os(iOS)
+            #if os(iOS)
+            ToolbarItem(placement: .primaryAction) {
+                EditButton()
+                    .environment(\.editMode, $editMode)
+                    .disabled(playlists.isEmpty && !isEditing)
+            }
+
+            if isEditing {
                 ToolbarItem(placement: .topBarLeading) {
                     Button(selectedIds.count == playlists.count ? "Deselect All" : "Select All") {
                         if selectedIds.count == playlists.count {
@@ -66,80 +102,42 @@ struct PlaylistsView: View {
                     }
                 }
 
-                ToolbarItem(placement: .primaryAction) {
-                    Button("Cancel") {
-                        isSelecting = false
-                        selectedIds.removeAll()
-                    }
-                }
-
                 ToolbarItemGroup(placement: .bottomBar) {
                     Button(role: .destructive) {
-                        for id in selectedIds {
-                            appState.client?.deletePlaylist(id)
-                        }
-                        playlists.removeAll { selectedIds.contains($0.id) }
-                        selectedIds.removeAll()
-                        isSelecting = false
+                        deleteSelected()
                     } label: {
                         Label("Delete", systemImage: "trash")
                     }
                     .disabled(selectedIds.isEmpty)
                     Spacer()
                 }
-                #else
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") {
-                        isSelecting = false
-                        selectedIds.removeAll()
-                    }
+            }
+            #else
+            ToolbarItem(placement: .primaryAction) {
+                Button(isEditing ? "Done" : "Edit") {
+                    toggleEditMode()
                 }
+                .disabled(playlists.isEmpty && !isEditing)
+            }
 
-                ToolbarItem(placement: .primaryAction) {
-                    Button(selectedIds.count == playlists.count ? "Deselect All" : "Select All") {
-                        if selectedIds.count == playlists.count {
-                            selectedIds.removeAll()
-                        } else {
-                            selectedIds = Set(playlists.map(\.id))
-                        }
-                    }
-                }
-
+            if isEditing {
                 ToolbarItem(placement: .primaryAction) {
                     Button(role: .destructive) {
-                        for id in selectedIds {
-                            appState.client?.deletePlaylist(id)
-                        }
-                        playlists.removeAll { selectedIds.contains($0.id) }
-                        selectedIds.removeAll()
-                        isSelecting = false
+                        deleteSelected()
                     } label: {
                         Label("Delete", systemImage: "trash")
                     }
                     .disabled(selectedIds.isEmpty)
                 }
-                #endif
-            } else {
-                ToolbarItem(placement: .primaryAction) {
-                    Button {
-                        isCreatingPlaylist = true
-                    } label: {
-                        Image(systemName: "plus")
-                    }
-                }
-
-                if !playlists.isEmpty {
-                    ToolbarItem(placement: .primaryAction) {
-                        Button {
-                            isSelecting = true
-                        } label: {
-                            Label("Select", systemImage: "checklist")
-                        }
-                    }
-                }
+            }
+            #endif
+        }
+        .shellChromeSuppressed(isEditing, reason: .editing)
+        .onChange(of: isEditing) {
+            if !isEditing {
+                selectedIds.removeAll()
             }
         }
-        .onChange(of: isSelecting) { appState.isInSelectionMode = isSelecting }
         .task {
             await loadPlaylists()
         }
@@ -194,43 +192,22 @@ struct PlaylistsView: View {
         }
     }
 
-    @ViewBuilder
-    private func selectableRow(for playlist: Playlist) -> some View {
-        let isSelected = selectedIds.contains(playlist.id)
-
-        Button {
-            if isSelected {
-                selectedIds.remove(playlist.id)
-            } else {
-                selectedIds.insert(playlist.id)
-            }
-        } label: {
-            HStack(spacing: 12) {
-                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                    .font(.title3)
-                    .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
-
-                playlistRowContent(for: playlist)
-            }
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-            Button(role: .destructive) {
-                deletePlaylist(playlist)
-            } label: {
-                Label("Delete", systemImage: "trash")
-            }
-        }
-    }
-
     private func deletePlaylist(_ playlist: Playlist) {
         appState.client?.deletePlaylist(playlist.id)
         playlists.removeAll { $0.id == playlist.id }
         selectedIds.remove(playlist.id)
         if playlists.isEmpty {
-            isSelecting = false
+            setEditing(false)
         }
+    }
+
+    private func deleteSelected() {
+        for id in selectedIds {
+            appState.client?.deletePlaylist(id)
+        }
+        playlists.removeAll { selectedIds.contains($0.id) }
+        selectedIds.removeAll()
+        setEditing(false)
     }
 
     private func loadPlaylists() async {
@@ -283,5 +260,29 @@ struct PlaylistsView: View {
         await MainActor.run {
             artworkAlbumIds[playlist.id] = ordered
         }
+    }
+
+    private var isEditing: Bool {
+        #if os(iOS)
+        editMode == .active
+        #else
+        isEditingMac
+        #endif
+    }
+
+    private func setEditing(_ isEditing: Bool) {
+        #if os(iOS)
+        editMode = isEditing ? .active : .inactive
+        #else
+        isEditingMac = isEditing
+        #endif
+    }
+
+    private func toggleEditMode() {
+        setEditing(!isEditing)
+    }
+
+    private var selectionBinding: Binding<Set<String>>? {
+        isEditing ? $selectedIds : nil
     }
 }
