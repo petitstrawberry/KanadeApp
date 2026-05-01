@@ -13,7 +13,7 @@ let project = Project(
             platform: .iOS,
             product: .app,
             bundleId: "dev.ichigo.KanadeApp",
-            deploymentTarget: DeploymentTarget.iOS(targetVersion: "26.0", devices: [.iphone, .ipad]),
+            deploymentTarget: DeploymentTarget.iOS(targetVersion: "26.1", devices: [.iphone, .ipad]),
             infoPlist: .extendingDefault(
                 with: [
                     "CFBundleDisplayName": "Kanade",
