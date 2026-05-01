@@ -47,6 +47,7 @@ struct PlaylistsView: View {
                                 .foregroundStyle(.primary)
                         }
                     }
+                    .buttonStyle(.plain)
                     .listSectionSeparator(.hidden, edges: .all)
 
                     ForEach(playlists) { playlist in

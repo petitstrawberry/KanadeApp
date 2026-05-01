@@ -92,6 +92,24 @@ struct NowPlayingBar: View {
         .frame(maxWidth: .infinity)
         .padding(.horizontal, horizontalPadding)
         .padding(.vertical, verticalPadding)
+        .sheet(isPresented: $showNodes) {
+            NavigationStack {
+                NodesView()
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button("Close") {
+                                showNodes = false
+                            }
+                        }
+                    }
+            }
+            .environment(appState)
+            #if os(iOS)
+            .presentationDetents([.medium])
+            #else
+            .frame(minWidth: 400, minHeight: 300)
+            #endif
+        }
     }
 
     private func compactContent(currentTrack: Track) -> some View {
@@ -127,18 +145,12 @@ struct NowPlayingBar: View {
             showNodes = true
         } label: {
             Image(systemName: appState.isControllingLocalNode ? "headphones" : "airplayaudio")
-                .font(.system(size: 13))
+                .font(.system(size: 14))
                 .foregroundStyle(.secondary)
+                .frame(width: 32, height: 32)
+                .background(Circle().fill(.quaternary.opacity(0.6)))
         }
-        .sheet(isPresented: $showNodes) {
-            NavigationStack {
-                NodesView()
-            }
-            .environment(appState)
-            #if os(iOS)
-            .presentationDetents([.medium])
-            #endif
-        }
+        .buttonStyle(.plain)
     }
 
     private func fullContent(currentTrack: Track) -> some View {
