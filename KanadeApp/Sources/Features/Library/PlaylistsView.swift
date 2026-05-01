@@ -45,7 +45,11 @@ struct PlaylistsView: View {
                             Text("New Playlist")
                                 .font(.headline)
                                 .foregroundStyle(.primary)
+
+                            Spacer(minLength: 0)
                         }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                     .listSectionSeparator(.hidden, edges: .all)
@@ -77,7 +81,7 @@ struct PlaylistsView: View {
                             }
                         }
                     }
-                    .listRowSeparator(.hidden)
+                    // .listRowSeparator(.hidden)
                 }
                 .listStyle(.plain)
                 #if os(iOS)
