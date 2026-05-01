@@ -31,12 +31,12 @@ struct PlaylistEditorSheet: View {
                     TextField("Name", text: $name)
                     TextField("Description (optional)", text: $descriptionText, axis: .vertical)
                         .lineLimit(2...4)
-                    
+
                     Picker("Kind", selection: $kind) {
                         Text("Normal").tag(PlaylistKind.normal)
                         Text("Smart").tag(PlaylistKind.smart)
                     }
-                    
+
                     if case .edit = mode, kind == .smart {
                         Text("Smart filter cannot be changed after creation.")
                             .font(.caption)
@@ -116,7 +116,7 @@ struct PlaylistEditorSheet: View {
                     .disabled(isSaving)
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button {
+                    Button(role: .confirm) {
                         Task { await save() }
                     } label: {
                         if isSaving {

@@ -47,6 +47,7 @@ struct PlaylistsView: View {
                                 .foregroundStyle(.primary)
                         }
                     }
+                    .listSectionSeparator(.hidden, edges: .all)
 
                     ForEach(playlists) { playlist in
                         if isEditing {
@@ -75,6 +76,7 @@ struct PlaylistsView: View {
                             }
                         }
                     }
+                    .listRowSeparator(.hidden)
                 }
                 .listStyle(.plain)
                 #if os(iOS)

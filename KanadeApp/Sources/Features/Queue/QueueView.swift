@@ -43,6 +43,7 @@ struct QueueView: View {
                         }
                     }
                 }
+                .listSectionSeparator(.hidden, edges: .all)
 
                 Section {
                     ForEach(Array(queue.enumerated()), id: \.element.id) { index, track in
