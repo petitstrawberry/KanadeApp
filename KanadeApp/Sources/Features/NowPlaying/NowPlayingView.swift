@@ -17,6 +17,7 @@ struct NowPlayingView: View {
     #if os(iOS)
     @State private var showQueue = false
     #endif
+    @State private var showNodes = false
     @State private var dominantColor: Color = .clear
 
     private var playbackState: AppState.EffectivePlaybackState {
@@ -228,6 +229,13 @@ struct NowPlayingView: View {
             }
             .environment(appState)
         }
+        .sheet(isPresented: $showNodes) {
+            NavigationStack {
+                NodesView()
+            }
+            .environment(appState)
+            .presentationDetents([.medium])
+        }
         .padding(.bottom, 32)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(backgroundView)
@@ -272,6 +280,12 @@ struct NowPlayingView: View {
                 appState.performSetVolume(Int(volumeValue.rounded()))
             }
         }
+        .sheet(isPresented: $showNodes) {
+            NavigationStack {
+                NodesView()
+            }
+            .environment(appState)
+        }
         #endif
     }
 
@@ -284,14 +298,13 @@ struct NowPlayingView: View {
                 .font(.subheadline.weight(.medium))
                 .foregroundStyle(.white.opacity(0.6))
 
-            Menu {
-                OutputPickerMenuContent()
+            Button {
+                showNodes = true
             } label: {
                 Text(outputName)
                     .font(.subheadline.weight(.medium))
                     .foregroundStyle(.white.opacity(0.8))
             }
-            .menuStyle(.borderlessButton)
 
             Spacer()
 
@@ -479,8 +492,8 @@ struct NowPlayingView: View {
             }
             .buttonStyle(.plain)
 
-            Menu {
-                OutputPickerMenuContent()
+            Button {
+                showNodes = true
             } label: {
                 Image(systemName: appState.isControllingLocalNode ? "headphones" : "airplayaudio")
                     .font(.headline)
@@ -488,7 +501,6 @@ struct NowPlayingView: View {
                     .frame(width: 36, height: 36)
                     .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 10))
             }
-            .menuStyle(.borderlessButton)
             .buttonStyle(.plain)
 
             HStack(spacing: 8) {

@@ -17,6 +17,7 @@ struct NowPlayingBar: View {
     @State private var pendingSeekTarget: Double?
     @State private var volumeValue: Double = 0
     @State private var isAdjustingVolume = false
+    @State private var showNodes = false
 
     private var playbackState: AppState.EffectivePlaybackState {
         appState.effectivePlaybackState
@@ -122,15 +123,22 @@ struct NowPlayingBar: View {
 
     @ViewBuilder
     private var compactOutputButton: some View {
-        @Bindable var appState = appState
-        Menu {
-            OutputPickerMenuContent()
+        Button {
+            showNodes = true
         } label: {
             Image(systemName: appState.isControllingLocalNode ? "headphones" : "airplayaudio")
                 .font(.system(size: 13))
                 .foregroundStyle(.secondary)
         }
-        .menuStyle(.borderlessButton)
+        .sheet(isPresented: $showNodes) {
+            NavigationStack {
+                NodesView()
+            }
+            .environment(appState)
+            #if os(iOS)
+            .presentationDetents([.medium])
+            #endif
+        }
     }
 
     private func fullContent(currentTrack: Track) -> some View {
@@ -338,9 +346,8 @@ struct NowPlayingBar: View {
 
     @ViewBuilder
     private var outputPickerButton: some View {
-        @Bindable var appState = appState
-        Menu {
-            OutputPickerMenuContent()
+        Button {
+            showNodes = true
         } label: {
             Image(systemName: appState.isControllingLocalNode ? "headphones" : "airplayaudio")
                 .font(.system(size: 14))
@@ -348,7 +355,7 @@ struct NowPlayingBar: View {
                 .frame(width: 32, height: 32)
                 .background(Circle().fill(.quaternary.opacity(0.6)))
         }
-        .menuStyle(.borderlessButton)
+        .buttonStyle(.plain)
     }
 
     @ViewBuilder

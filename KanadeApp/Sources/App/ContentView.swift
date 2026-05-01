@@ -259,13 +259,6 @@ struct ContentView: View {
                     Image(systemName: "gearshape")
                 }
             }
-            ToolbarItem(placement: .topBarLeading) {
-                Button {
-                    showNodes = true
-                } label: {
-                    Image(systemName: "speaker.wave.2")
-                }
-            }
         }
     }
     #endif
