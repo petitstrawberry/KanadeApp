@@ -70,29 +70,97 @@ struct PlaylistDetailView: View {
             .padding()
         }
         .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                Button {
-                    isShowingEditor = true
-                } label: {
-                    Image(systemName: "ellipsis.circle")
-                }
-            }
-
-            if !tracks.isEmpty {
-                ToolbarItem(placement: .primaryAction) {
-                    Button {
-                        if isSelecting {
-                            isSelecting = false
+            if isSelecting {
+                #if os(iOS)
+                ToolbarItem(placement: .topBarLeading) {
+                    Button(selectedIds.count == tracks.count ? "Deselect All" : "Select All") {
+                        if selectedIds.count == tracks.count {
                             selectedIds.removeAll()
                         } else {
-                            isSelecting = true
+                            selectedIds = Set(tracks.map(\.id))
+                        }
+                    }
+                }
+
+                ToolbarItem(placement: .primaryAction) {
+                    Button("Cancel") {
+                        isSelecting = false
+                        selectedIds.removeAll()
+                    }
+                }
+
+                ToolbarItemGroup(placement: .bottomBar) {
+                    selectionMenuContent
+                        .disabled(selectedIds.isEmpty)
+                    if currentPlaylist.kind == .normal {
+                        Button(role: .destructive) {
+                            removeSelectedTracks()
+                        } label: {
+                            Label("Remove", systemImage: "minus.circle")
+                        }
+                        .disabled(selectedIds.isEmpty)
+                    }
+                    Spacer()
+                }
+                #else
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        isSelecting = false
+                        selectedIds.removeAll()
+                    }
+                }
+
+                ToolbarItem(placement: .primaryAction) {
+                    Button(selectedIds.count == tracks.count ? "Deselect All" : "Select All") {
+                        if selectedIds.count == tracks.count {
+                            selectedIds.removeAll()
+                        } else {
+                            selectedIds = Set(tracks.map(\.id))
+                        }
+                    }
+                }
+
+                ToolbarItem(placement: .primaryAction) {
+                    Menu {
+                        selectionMenuContent
+
+                        if currentPlaylist.kind == .normal {
+                            Divider()
+
+                            Button(role: .destructive) {
+                                removeSelectedTracks()
+                            } label: {
+                                Label("Remove", systemImage: "minus.circle")
+                            }
                         }
                     } label: {
-                        Label(isSelecting ? "Cancel" : "Select", systemImage: isSelecting ? "xmark.circle" : "checklist")
+                        Label("Actions", systemImage: "ellipsis.circle")
+                    }
+                    .disabled(selectedIds.isEmpty)
+                }
+                #endif
+            } else {
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        isShowingEditor = true
+                    } label: {
+                        Image(systemName: "ellipsis.circle")
+                    }
+                }
+
+                if !tracks.isEmpty {
+                    ToolbarItem(placement: .primaryAction) {
+                        Button {
+                            isSelecting = true
+                        } label: {
+                            Label("Select", systemImage: "checklist")
+                        }
                     }
                 }
             }
         }
+        .onChange(of: isSelecting) { appState.isInSelectionMode = isSelecting }
+        .navigationBarBackButtonHidden(isSelecting)
         .sheet(isPresented: $isShowingEditor) {
             PlaylistEditorSheet(mode: .edit(currentPlaylist)) {
                 await reloadAll()
@@ -106,72 +174,6 @@ struct PlaylistDetailView: View {
         .task {
             await loadTracks()
         }
-        .overlay(alignment: .bottom) {
-            if isSelecting {
-                selectionActionBar
-            }
-        }
-    }
-
-    private var selectionActionBar: some View {
-        HStack(spacing: 10) {
-            Button {
-                if selectedIds.count == tracks.count {
-                    selectedIds.removeAll()
-                } else {
-                    selectedIds = Set(tracks.map(\.id))
-                }
-            } label: {
-                Image(systemName: selectedIds.count == tracks.count ? "xmark.circle" : "checkmark.circle")
-                    .font(.body)
-            }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
-
-            Spacer()
-
-            if !selectedIds.isEmpty {
-                Menu {
-                    Button {
-                        let selected = tracks.filter { selectedIds.contains($0.id) }
-                        appState.performAddTracksToQueue(selected)
-                    } label: {
-                        Label("Add to Queue", systemImage: "plus.circle")
-                    }
-
-                    Button {
-                        addToPlaylistTarget = AddToPlaylistTarget(trackIds: Array(selectedIds))
-                        isSelecting = false
-                        selectedIds.removeAll()
-                    } label: {
-                        Label("Add to Playlist", systemImage: "text.badge.plus")
-                    }
-                } label: {
-                    Label("Add", systemImage: "plus")
-                        .font(.subheadline.weight(.semibold))
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.small)
-
-                if currentPlaylist.kind == .normal {
-                    Button(role: .destructive) {
-                        removeSelectedTracks()
-                    } label: {
-                        Label("Remove", systemImage: "minus.circle")
-                            .font(.subheadline.weight(.semibold))
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                }
-            }
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
-        .background(.regularMaterial)
-        .clipShape(RoundedRectangle(cornerRadius: 16))
-        .shadow(color: .black.opacity(0.15), radius: 8, y: 4)
-        .frame(maxWidth: .infinity)
-        .padding(.bottom, 8)
     }
 
     @ViewBuilder
@@ -187,35 +189,61 @@ struct PlaylistDetailView: View {
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
     }
 
+    // MARK: - Selection Toolbar
+
+    @ViewBuilder
+    private var selectionMenuContent: some View {
+        Button {
+            let selected = tracks.filter { selectedIds.contains($0.id) }
+            appState.performAddTracksToQueue(selected)
+        } label: {
+            Label("Add to Queue", systemImage: "plus.circle")
+        }
+
+        Button {
+            addToPlaylistTarget = AddToPlaylistTarget(trackIds: Array(selectedIds))
+            isSelecting = false
+            selectedIds.removeAll()
+        } label: {
+            Label("Add to Playlist", systemImage: "text.badge.plus")
+        }
+    }
+
     @ViewBuilder
     private func selectableRow(track: Track, index: Int) -> some View {
         let isSelected = selectedIds.contains(track.id)
 
-        Button {
+        HStack(spacing: 0) {
             if isSelecting {
-                if isSelected {
-                    selectedIds.remove(track.id)
-                } else {
-                    selectedIds.insert(track.id)
-                }
-            } else {
-                playTrack(at: index)
-            }
-        } label: {
-            HStack(spacing: 0) {
-                if isSelecting {
+                Button {
+                    if isSelected {
+                        selectedIds.remove(track.id)
+                    } else {
+                        selectedIds.insert(track.id)
+                    }
+                } label: {
                     Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
                         .font(.title3)
                         .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
                         .frame(width: 32)
                         .padding(.trailing, 4)
                 }
-
-                TrackRow(track: track, isPlaying: currentTrackId == track.id, onTap: {}, appState: appState, displayNumber: index + 1)
+                .buttonStyle(.plain)
             }
-            .contentShape(Rectangle())
+
+            TrackRow(track: track, isPlaying: currentTrackId == track.id, onTap: {
+                if isSelecting {
+                    if isSelected {
+                        selectedIds.remove(track.id)
+                    } else {
+                        selectedIds.insert(track.id)
+                    }
+                } else {
+                    playTrack(at: index)
+                }
+            }, appState: appState, displayNumber: index + 1)
         }
-        .buttonStyle(.plain)
+        .contentShape(Rectangle())
         .contextMenu {
             Button {
                 appState.performAddToQueue(track)

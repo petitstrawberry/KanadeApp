@@ -185,6 +185,8 @@ final class AppState {
         controlTarget == .local
     }
 
+    var isInSelectionMode = false
+
     var shouldShowMiniPlayer: Bool {
         effectiveCurrentTrack != nil && (isConnected || localPlayback != nil)
     }

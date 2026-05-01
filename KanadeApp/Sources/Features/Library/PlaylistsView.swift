@@ -54,29 +54,92 @@ struct PlaylistsView: View {
         }
         .navigationTitle("Playlists")
         .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                Button {
-                    isCreatingPlaylist = true
-                } label: {
-                    Image(systemName: "plus")
-                }
-            }
-
-            if !playlists.isEmpty {
-                ToolbarItem(placement: .primaryAction) {
-                    Button {
-                        if isSelecting {
-                            isSelecting = false
+            if isSelecting {
+                #if os(iOS)
+                ToolbarItem(placement: .topBarLeading) {
+                    Button(selectedIds.count == playlists.count ? "Deselect All" : "Select All") {
+                        if selectedIds.count == playlists.count {
                             selectedIds.removeAll()
                         } else {
-                            isSelecting = true
+                            selectedIds = Set(playlists.map(\.id))
                         }
+                    }
+                }
+
+                ToolbarItem(placement: .primaryAction) {
+                    Button("Cancel") {
+                        isSelecting = false
+                        selectedIds.removeAll()
+                    }
+                }
+
+                ToolbarItemGroup(placement: .bottomBar) {
+                    Button(role: .destructive) {
+                        for id in selectedIds {
+                            appState.client?.deletePlaylist(id)
+                        }
+                        playlists.removeAll { selectedIds.contains($0.id) }
+                        selectedIds.removeAll()
+                        isSelecting = false
                     } label: {
-                        Label(isSelecting ? "Cancel" : "Select", systemImage: isSelecting ? "xmark.circle" : "checklist")
+                        Label("Delete", systemImage: "trash")
+                    }
+                    .disabled(selectedIds.isEmpty)
+                    Spacer()
+                }
+                #else
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        isSelecting = false
+                        selectedIds.removeAll()
+                    }
+                }
+
+                ToolbarItem(placement: .primaryAction) {
+                    Button(selectedIds.count == playlists.count ? "Deselect All" : "Select All") {
+                        if selectedIds.count == playlists.count {
+                            selectedIds.removeAll()
+                        } else {
+                            selectedIds = Set(playlists.map(\.id))
+                        }
+                    }
+                }
+
+                ToolbarItem(placement: .primaryAction) {
+                    Button(role: .destructive) {
+                        for id in selectedIds {
+                            appState.client?.deletePlaylist(id)
+                        }
+                        playlists.removeAll { selectedIds.contains($0.id) }
+                        selectedIds.removeAll()
+                        isSelecting = false
+                    } label: {
+                        Label("Delete", systemImage: "trash")
+                    }
+                    .disabled(selectedIds.isEmpty)
+                }
+                #endif
+            } else {
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        isCreatingPlaylist = true
+                    } label: {
+                        Image(systemName: "plus")
+                    }
+                }
+
+                if !playlists.isEmpty {
+                    ToolbarItem(placement: .primaryAction) {
+                        Button {
+                            isSelecting = true
+                        } label: {
+                            Label("Select", systemImage: "checklist")
+                        }
                     }
                 }
             }
         }
+        .onChange(of: isSelecting) { appState.isInSelectionMode = isSelecting }
         .task {
             await loadPlaylists()
         }
@@ -95,53 +158,6 @@ struct PlaylistsView: View {
                 await loadPlaylists()
             }
         }
-        .overlay(alignment: .bottom) {
-            if isSelecting {
-                selectionActionBar
-            }
-        }
-    }
-
-    private var selectionActionBar: some View {
-        HStack(spacing: 10) {
-            Button {
-                if selectedIds.count == playlists.count {
-                    selectedIds.removeAll()
-                } else {
-                    selectedIds = Set(playlists.map(\.id))
-                }
-            } label: {
-                Image(systemName: selectedIds.count == playlists.count ? "xmark.circle" : "checkmark.circle")
-                    .font(.body)
-            }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
-
-            Spacer()
-
-            if !selectedIds.isEmpty {
-                Button(role: .destructive) {
-                    for id in selectedIds {
-                        appState.client?.deletePlaylist(id)
-                    }
-                    playlists.removeAll { selectedIds.contains($0.id) }
-                    selectedIds.removeAll()
-                    isSelecting = false
-                } label: {
-                    Label("Delete", systemImage: "trash")
-                        .font(.subheadline.weight(.semibold))
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-            }
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
-        .background(.regularMaterial)
-        .clipShape(RoundedRectangle(cornerRadius: 16))
-        .shadow(color: .black.opacity(0.15), radius: 8, y: 4)
-        .frame(maxWidth: .infinity)
-        .padding(.bottom, 8)
     }
 
     @ViewBuilder

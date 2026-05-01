@@ -94,7 +94,7 @@ struct ContentView: View {
                     connectionBanner
                 }
                 .safeAreaInset(edge: .bottom, spacing: 0) {
-                    if appState.shouldShowMiniPlayer {
+            if appState.shouldShowMiniPlayer && !appState.isInSelectionMode {
                         NowPlayingBar(placement: .macFloating, onActivate: {
                             #if os(iOS)
                             showNowPlaying = true
@@ -202,24 +202,28 @@ struct ContentView: View {
                     AlbumsView()
                         .toolbar { iphoneGlobalToolbarItems }
                 }
+                .toolbar(appState.isInSelectionMode ? .hidden : .visible, for: .tabBar)
             }
             Tab(LibrarySection.artists.title, systemImage: LibrarySection.artists.systemImage) {
                 NavigationStack {
                     ArtistsView()
                         .toolbar { iphoneGlobalToolbarItems }
                 }
+                .toolbar(appState.isInSelectionMode ? .hidden : .visible, for: .tabBar)
             }
             Tab(LibrarySection.genres.title, systemImage: LibrarySection.genres.systemImage) {
                 NavigationStack {
                     GenresView()
                         .toolbar { iphoneGlobalToolbarItems }
                 }
+                .toolbar(appState.isInSelectionMode ? .hidden : .visible, for: .tabBar)
             }
             Tab(LibrarySection.playlists.title, systemImage: LibrarySection.playlists.systemImage) {
                 NavigationStack {
                     PlaylistsView()
                         .toolbar { iphoneGlobalToolbarItems }
                 }
+                .toolbar(appState.isInSelectionMode ? .hidden : .visible, for: .tabBar)
             }
             Tab(role: .search) {
                 NavigationStack {
@@ -228,9 +232,10 @@ struct ContentView: View {
                             iphoneGlobalToolbarItems
                         }
                 }
+                .toolbar(appState.isInSelectionMode ? .hidden : .visible, for: .tabBar)
             }
         }
-        .tabViewBottomAccessory {
+        .tabViewBottomAccessory(isEnabled: !appState.isInSelectionMode) {
             if appState.shouldShowMiniPlayer {
                 Button {
                     showNowPlaying = true
@@ -245,18 +250,20 @@ struct ContentView: View {
 
     @ToolbarContentBuilder
     var iphoneGlobalToolbarItems: some ToolbarContent {
-        ToolbarItem(placement: .topBarLeading) {
-            Button {
-            showSettings = true
-            } label: {
-                Image(systemName: "gearshape")
+        if !appState.isInSelectionMode {
+            ToolbarItem(placement: .topBarLeading) {
+                Button {
+                showSettings = true
+                } label: {
+                    Image(systemName: "gearshape")
+                }
             }
-        }
-        ToolbarItem(placement: .topBarLeading) {
-            Button {
-                showNodes = true
-            } label: {
-                Image(systemName: "speaker.wave.2")
+            ToolbarItem(placement: .topBarLeading) {
+                Button {
+                    showNodes = true
+                } label: {
+                    Image(systemName: "speaker.wave.2")
+                }
             }
         }
     }
