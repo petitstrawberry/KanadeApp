@@ -4,7 +4,7 @@ import KanadeKit
 struct AlbumDetailView: View {
     @Environment(AppState.self) private var appState
     #if os(iOS)
-    @Environment(\.editMode) private var editMode
+    @State private var editMode: EditMode = .inactive
     #endif
     #if os(macOS)
     @State private var isEditingMac = false
@@ -60,26 +60,11 @@ struct AlbumDetailView: View {
         }
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
+        #if os(iOS)
+        .environment(\.editMode, $editMode)
+        #endif
         .toolbar {
-            TrackListEditToolbar(
-                canEdit: !tracks.isEmpty,
-                isEditing: isEditing,
-                allSelected: trackListAllSelected(selectedIds: selectedIds, trackIds: tracks.map(\.id)),
-                hasSelection: !selectedIds.isEmpty,
-                onToggleEditMac: toggleEditMode,
-                onToggleSelectAll: {
-                    toggleTrackListSelection(selectedIds: &selectedIds, trackIds: tracks.map(\.id))
-                },
-                onAddToQueue: {
-                    appState.performAddTracksToQueue(selectedTracks(from: tracks, selectedIds: selectedIds))
-                },
-                onAddToPlaylist: {
-                    addToPlaylistTarget = AddToPlaylistTarget(trackIds: Array(selectedIds))
-                    selectedIds.removeAll()
-                    setEditing(false)
-                },
-                onRemove: nil
-            )
+            editToolbarContent
         }
         .shellChromeSuppressed(isEditing, reason: .editing)
         .onChange(of: isEditing) {
@@ -196,9 +181,54 @@ struct AlbumDetailView: View {
         }
     }
 
+    #if os(iOS)
+    private var editToolbarContent: some ToolbarContent {
+        TrackListEditToolbar(
+            isEditing: isEditing,
+            allSelected: trackListAllSelected(selectedIds: selectedIds, trackIds: tracks.map(\.id)),
+            hasSelection: !selectedIds.isEmpty,
+            editMode: $editMode,
+            onToggleEditMac: toggleEditMode,
+            onToggleSelectAll: {
+                toggleTrackListSelection(selectedIds: &selectedIds, trackIds: tracks.map(\.id))
+            },
+            onAddToQueue: {
+                appState.performAddTracksToQueue(selectedTracks(from: tracks, selectedIds: selectedIds))
+            },
+            onAddToPlaylist: {
+                addToPlaylistTarget = AddToPlaylistTarget(trackIds: Array(selectedIds))
+                selectedIds.removeAll()
+                setEditing(false)
+            },
+            onRemove: nil
+        )
+    }
+    #else
+    private var editToolbarContent: some ToolbarContent {
+        TrackListEditToolbar(
+            isEditing: isEditing,
+            allSelected: trackListAllSelected(selectedIds: selectedIds, trackIds: tracks.map(\.id)),
+            hasSelection: !selectedIds.isEmpty,
+            onToggleEditMac: toggleEditMode,
+            onToggleSelectAll: {
+                toggleTrackListSelection(selectedIds: &selectedIds, trackIds: tracks.map(\.id))
+            },
+            onAddToQueue: {
+                appState.performAddTracksToQueue(selectedTracks(from: tracks, selectedIds: selectedIds))
+            },
+            onAddToPlaylist: {
+                addToPlaylistTarget = AddToPlaylistTarget(trackIds: Array(selectedIds))
+                selectedIds.removeAll()
+                setEditing(false)
+            },
+            onRemove: nil
+        )
+    }
+    #endif
+
     private var isEditing: Bool {
         #if os(iOS)
-        editMode?.wrappedValue == .active
+        editMode == .active
         #else
         isEditingMac
         #endif
@@ -206,7 +236,7 @@ struct AlbumDetailView: View {
 
     private func setEditing(_ isEditing: Bool) {
         #if os(iOS)
-        editMode?.wrappedValue = isEditing ? .active : .inactive
+        editMode = isEditing ? .active : .inactive
         #else
         isEditingMac = isEditing
         #endif
