@@ -72,6 +72,7 @@ let project = Project(
                     "NSBonjourServices": [
                         "_kanade._tcp",
                     ],
+                    "NSLocalNetworkUsageDescription": "Kanade uses the local network to discover and connect to music servers.",
                 ]
             ),
             sources: ["KanadeApp/Sources/**"],
