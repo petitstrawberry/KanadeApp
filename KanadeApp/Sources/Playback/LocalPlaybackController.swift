@@ -161,20 +161,11 @@ final class LocalPlaybackController {
                 self.markTrackLoadSucceeded(signedURL: signedURL, trackID: trackID)
 
                 if case .idle = self.engine.state.status {
-                    self.engine.load(signedURL: signedURL, autoplay: wasPlaying)
-                    if !wasPlaying {
-                        self.engine.seek(to: position)
-                    }
+                    self.engine.load(signedURL: signedURL, autoplay: wasPlaying, startPositionSecs: position)
                 } else if case .stopped = self.engine.state.status {
-                    self.engine.load(signedURL: signedURL, autoplay: wasPlaying)
-                    if !wasPlaying {
-                        self.engine.seek(to: position)
-                    }
+                    self.engine.load(signedURL: signedURL, autoplay: wasPlaying, startPositionSecs: position)
                 } else if case .error = self.engine.state.status {
-                    self.engine.load(signedURL: signedURL, autoplay: wasPlaying)
-                    if !wasPlaying {
-                        self.engine.seek(to: position)
-                    }
+                    self.engine.load(signedURL: signedURL, autoplay: wasPlaying, startPositionSecs: position)
                 } else {
                     self.engine.replaceCurrentItem(signedURL: signedURL, seekTo: position)
                 }

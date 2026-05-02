@@ -49,7 +49,7 @@ final class StreamingPlaybackEngine {
         volume: 100
     )
 
-    func load(signedURL: URL, autoplay: Bool = true) {
+    func load(signedURL: URL, autoplay: Bool = true, startPositionSecs: Double = 0) {
         cleanupPlayer()
 
         shouldAutoplay = autoplay
@@ -67,9 +67,15 @@ final class StreamingPlaybackEngine {
         setupPeriodicTimeObserver()
 
         let initialStatus: StreamingPlaybackStatus = autoplay ? .loading : .paused
-        state.positionSecs = 0
+        state.status = initialStatus
+        state.positionSecs = max(startPositionSecs, 0)
         state.durationSecs = 0
-        updateState(initialStatus)
+
+        if startPositionSecs > 0 {
+            beginSeek(to: startPositionSecs, resumePlayback: autoplay)
+        } else {
+            updateState(initialStatus)
+        }
     }
 
     func preloadNext(signedURL: URL) {
@@ -83,8 +89,7 @@ final class StreamingPlaybackEngine {
 
     func replaceCurrentItem(signedURL: URL, seekTo positionSecs: Double) {
         guard let queuePlayer else {
-            load(signedURL: signedURL, autoplay: true)
-            seek(to: positionSecs)
+            load(signedURL: signedURL, autoplay: true, startPositionSecs: positionSecs)
             return
         }
 
@@ -258,6 +263,7 @@ final class StreamingPlaybackEngine {
         seekDisplayOverride = nil
         state.positionSecs = 0
         state.durationSecs = 0
+        emitStateChanged()
 
         itemStatusObservation = newItem.observe(\.status, options: [.initial, .new]) { [weak self] item, _ in
             Task { @MainActor [weak self] in
@@ -274,6 +280,7 @@ final class StreamingPlaybackEngine {
                 self.emitStateChanged()
             }
         }
+        observeItemPlaybackStalled(newItem)
 
         hasNextPreloaded = false
 
@@ -296,6 +303,10 @@ final class StreamingPlaybackEngine {
             let currentStatus = state.status
             guard !matchesTerminalStatus(currentStatus) else { return }
             if shouldAutoplay {
+                guard !hasActiveSeekForCurrentItem else {
+                    updateState(.loading)
+                    return
+                }
                 queuePlayer?.play()
                 updateState(.loading)
                 return
@@ -317,6 +328,10 @@ final class StreamingPlaybackEngine {
         case .readyToPlay:
             state.durationSecs = resolvedDurationSecs(fallback: state.durationSecs)
             if shouldAutoplay {
+                guard !hasActiveSeekForCurrentItem else {
+                    updateState(.loading)
+                    return
+                }
                 queuePlayer?.play()
                 updateState(queuePlayer?.timeControlStatus == .playing ? .playing : .loading)
             } else {
@@ -409,8 +424,13 @@ final class StreamingPlaybackEngine {
         state.positionSecs = positionSecs
 
         if resumePlayback {
-            queuePlayer?.play()
-            updateState(queuePlayer?.timeControlStatus == .playing ? .playing : .loading)
+            if finished {
+                queuePlayer?.play()
+                updateState(queuePlayer?.timeControlStatus == .playing ? .playing : .loading)
+            } else {
+                updateState(.loading)
+                retryTimedOutSeek(to: positionSecs, requestID: requestID, itemID: itemID)
+            }
         } else if finished {
             emitStateChanged()
         } else {
@@ -430,10 +450,30 @@ final class StreamingPlaybackEngine {
         seekTimeoutTask = nil
         state.positionSecs = positionSecs
         if resumePlayback {
-            queuePlayer?.play()
             updateState(.loading)
+            retryTimedOutSeek(to: positionSecs, requestID: requestID, itemID: itemID)
         } else {
             emitStateChanged()
+        }
+    }
+
+    private func retryTimedOutSeek(to positionSecs: Double, requestID: UInt64, itemID: ObjectIdentifier) {
+        guard let queuePlayer else { return }
+        let target = CMTime(seconds: positionSecs, preferredTimescale: 600)
+        queuePlayer.seek(to: target, toleranceBefore: CMTime(seconds: 0.5, preferredTimescale: 600), toleranceAfter: CMTime(seconds: 0.5, preferredTimescale: 600)) { [weak self] finished in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                guard requestID == self.seekRequestID else { return }
+                guard self.currentPlayerItem.map(ObjectIdentifier.init) == itemID else { return }
+
+                self.state.positionSecs = positionSecs
+                if finished {
+                    self.queuePlayer?.play()
+                    self.updateState(self.queuePlayer?.timeControlStatus == .playing ? .playing : .loading)
+                } else {
+                    self.updateState(.loading)
+                }
+            }
         }
     }
 
@@ -445,14 +485,13 @@ final class StreamingPlaybackEngine {
     private func setupPeriodicTimeObserver() {
         guard let queuePlayer else { return }
         let observedPlayer = queuePlayer
-        let observedItem = currentPlayerItem
 
         let interval = CMTime(seconds: 0.5, preferredTimescale: 600)
         timeObserver = queuePlayer.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] time in
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 guard self.queuePlayer === observedPlayer else { return }
-                guard self.currentPlayerItem === observedItem else { return }
+                guard self.currentPlayerItem != nil else { return }
                 self.state.positionSecs = self.displayPositionSecs(actualPositionSecs: self.sanitizedSeconds(time))
                 self.state.durationSecs = self.resolvedDurationSecs(fallback: self.state.durationSecs)
                 self.emitStateChanged()
@@ -476,6 +515,15 @@ final class StreamingPlaybackEngine {
         }
 
         return override.positionSecs
+    }
+
+    private var hasActiveSeekForCurrentItem: Bool {
+        guard let override = seekDisplayOverride,
+              override.requestID == seekRequestID,
+              currentPlayerItem.map(ObjectIdentifier.init) == override.itemID,
+              override.expiresAt > Date()
+        else { return false }
+        return true
     }
 
     private func currentPositionSecs() -> Double {
