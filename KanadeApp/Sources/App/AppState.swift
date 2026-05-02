@@ -185,6 +185,17 @@ final class AppState {
         controlTarget == .local
     }
 
+    var needsOutputSelection: Bool {
+        controlTarget == .remote && controlledNodeId == nil
+    }
+
+    var outputSelectionPromptText: String {
+        if remoteNodes.isEmpty {
+            return "Choose this device or another output."
+        }
+        return "Choose an output node."
+    }
+
     var shouldShowMiniPlayer: Bool {
         effectiveCurrentTrack != nil && (isConnected || localPlayback != nil)
     }
@@ -490,6 +501,7 @@ final class AppState {
         if isControllingLocalNode {
             localPlayback?.play()
         } else {
+            guard ensureRemotePlaybackTarget() else { return }
             syncRemoteSelectionIfNeeded()
             client?.play()
         }
@@ -499,6 +511,7 @@ final class AppState {
         if isControllingLocalNode {
             localPlayback?.pause()
         } else {
+            guard ensureRemotePlaybackTarget() else { return }
             syncRemoteSelectionIfNeeded()
             client?.pause()
         }
@@ -516,6 +529,7 @@ final class AppState {
         if isControllingLocalNode {
             localPlayback?.seek(to: positionSecs)
         } else {
+            guard ensureRemotePlaybackTarget() else { return }
             syncRemoteSelectionIfNeeded()
             client?.seek(to: positionSecs)
         }
@@ -525,6 +539,7 @@ final class AppState {
         if isControllingLocalNode {
             localPlayback?.setVolume(volume)
         } else {
+            guard ensureRemotePlaybackTarget() else { return }
             syncRemoteSelectionIfNeeded()
             client?.setVolume(volume)
         }
@@ -534,6 +549,7 @@ final class AppState {
         if isControllingLocalNode {
             localPlayback?.next()
         } else {
+            guard ensureRemotePlaybackTarget() else { return }
             syncRemoteSelectionIfNeeded()
             client?.next()
         }
@@ -543,6 +559,7 @@ final class AppState {
         if isControllingLocalNode {
             localPlayback?.previous()
         } else {
+            guard ensureRemotePlaybackTarget() else { return }
             syncRemoteSelectionIfNeeded()
             client?.previous()
         }
@@ -552,6 +569,7 @@ final class AppState {
         if isControllingLocalNode {
             localPlayback?.setRepeat(repeatMode)
         } else {
+            guard ensureRemotePlaybackTarget() else { return }
             syncRemoteSelectionIfNeeded()
             client?.setRepeat(repeatMode)
         }
@@ -561,6 +579,7 @@ final class AppState {
         if isControllingLocalNode {
             localPlayback?.setShuffle(enabled)
         } else {
+            guard ensureRemotePlaybackTarget() else { return }
             syncRemoteSelectionIfNeeded()
             client?.setShuffle(enabled)
         }
@@ -570,6 +589,7 @@ final class AppState {
         if isControllingLocalNode {
             localPlayback?.jumpToIndex(index)
         } else {
+            guard ensureRemotePlaybackTarget() else { return }
             syncRemoteSelectionIfNeeded()
             client?.playIndex(index)
         }
@@ -579,6 +599,7 @@ final class AppState {
         if isControllingLocalNode {
             localPlayback?.playTracks(tracks, startIndex: index)
         } else {
+            guard ensureRemotePlaybackTarget() else { return }
             syncRemoteSelectionIfNeeded()
             client?.replaceAndPlay(tracks: tracks, index: index)
         }
@@ -592,6 +613,7 @@ final class AppState {
         if isControllingLocalNode {
             localPlayback?.addTracksToQueue(tracks)
         } else {
+            guard ensureRemotePlaybackTarget() else { return }
             syncRemoteSelectionIfNeeded()
             client?.addTracksToQueue(tracks)
         }
@@ -601,6 +623,7 @@ final class AppState {
         if isControllingLocalNode {
             localPlayback?.removeFromQueue(index)
         } else {
+            guard ensureRemotePlaybackTarget() else { return }
             syncRemoteSelectionIfNeeded()
             client?.removeFromQueue(index)
         }
@@ -610,6 +633,7 @@ final class AppState {
         if isControllingLocalNode {
             localPlayback?.moveInQueue(from: sourceIndex, to: destinationIndex)
         } else {
+            guard ensureRemotePlaybackTarget() else { return }
             syncRemoteSelectionIfNeeded()
             client?.moveInQueue(from: sourceIndex, to: destinationIndex)
         }
@@ -619,12 +643,19 @@ final class AppState {
         if isControllingLocalNode {
             localPlayback?.clearQueue()
         } else {
+            guard ensureRemotePlaybackTarget() else { return }
             syncRemoteSelectionIfNeeded()
             client?.clearQueue()
         }
     }
 
     func performSelectNode(_ nodeId: String) {
+        guard let node = client?.state?.nodes.first(where: { $0.id == nodeId }),
+              isSelectableRemoteNode(node)
+        else {
+            showRemoteUnavailablePrompt = true
+            return
+        }
         controlTarget = .remote
         lastRemoteNodeId = nodeId
         controlledNodeId = nodeId
@@ -676,6 +707,13 @@ final class AppState {
     }
 
     func switchToRemote(nodeId: String) {
+        guard let node = client?.state?.nodes.first(where: { $0.id == nodeId }),
+              isSelectableRemoteNode(node)
+        else {
+            setResolvedControlledNodeId(nil)
+            showRemoteUnavailablePrompt = true
+            return
+        }
         if let from = controlledNodeId, from != nodeId {
             client?.handoff(fromNodeId: from, toNodeId: nodeId)
         }
@@ -823,9 +861,15 @@ final class AppState {
         #endif
     }
 
-    var remoteNodes: [Node] {
+    var visibleRemoteNodes: [Node] {
         (client?.state?.nodes ?? []).filter {
-            $0.connected && $0.deviceId != deviceId
+            shouldDisplayRemoteNode($0)
+        }
+    }
+
+    var remoteNodes: [Node] {
+        visibleRemoteNodes.filter {
+            isSelectableRemoteNode($0)
         }
     }
 
@@ -861,6 +905,32 @@ final class AppState {
         else { return }
 
         client?.selectNode(controlledNodeId)
+    }
+
+    private func ensureRemotePlaybackTarget() -> Bool {
+        guard controlTarget == .remote else { return true }
+        guard let controlledNodeId,
+              let node = client?.state?.nodes.first(where: { $0.id == controlledNodeId }),
+              isSelectableRemoteNode(node)
+        else {
+            setResolvedControlledNodeId(nil)
+            showRemoteUnavailablePrompt = true
+            return false
+        }
+
+        return true
+    }
+
+    private func shouldDisplayRemoteNode(_ node: Node) -> Bool {
+        node.id != localNodeId
+            && node.deviceId != deviceId
+            && !(node.deviceId == nil && node.name == currentDeviceName)
+    }
+
+    private func isSelectableRemoteNode(_ node: Node) -> Bool {
+        node.connected
+            && shouldDisplayRemoteNode(node)
+            && node.nodeType != .local
     }
 
     private func refreshEffectiveFallbacks(from state: PlaybackState) {
@@ -983,7 +1053,8 @@ extension AppState: KanadeClientDelegate {
                 let preferred = self.lastRemoteNodeId ?? state.selectedNodeId
 
                 if let preferred,
-                   state.nodes.contains(where: { $0.id == preferred && $0.nodeType != .local }) {
+                   let preferredNode = state.nodes.first(where: { $0.id == preferred }),
+                   self.isSelectableRemoteNode(preferredNode) {
                     self.setResolvedControlledNodeId(preferred)
                     self.showRemoteUnavailablePrompt = false
                 } else {

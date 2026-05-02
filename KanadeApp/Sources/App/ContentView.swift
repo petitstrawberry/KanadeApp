@@ -316,11 +316,19 @@ struct ContentView: View {
                 HStack(spacing: 10) {
                     Image(systemName: "exclamationmark.triangle.fill")
                         .foregroundStyle(.yellow)
-                    Text("No remote nodes available.")
+                    Text(appState.outputSelectionPromptText)
                         .font(.subheadline)
-                        .lineLimit(1)
+                        .lineLimit(2)
                         .truncationMode(.tail)
                     Spacer()
+                    Button {
+                        showNodes = true
+                    } label: {
+                        Text("Choose")
+                            .lineLimit(1)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
                     Button {
                         appState.switchToLocal(
                             tracks: appState.effectiveQueue,
@@ -328,10 +336,10 @@ struct ContentView: View {
                             positionSecs: appState.effectiveTransportState?.positionSecs
                         )
                     } label: {
-                        Text("Play Locally")
+                        Text("Local")
                             .lineLimit(1)
                     }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.bordered)
                     .controlSize(.small)
                     Button {
                         appState.showRemoteUnavailablePrompt = false
