@@ -24,8 +24,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/petitstrawberry/KanadeKit.git",
       "state" : {
-        "revision" : "6f85a6e8381dbcbcc6c3b04ac465cbeca03a67f3",
-        "version" : "0.1.0"
+        "revision" : "de9af0f7d0e48bbcd73aa312db46bac7e06a3ca1",
+        "version" : "0.3.0"
       }
     },
     {
