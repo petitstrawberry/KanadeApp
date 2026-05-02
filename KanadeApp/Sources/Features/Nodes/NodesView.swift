@@ -118,7 +118,7 @@ struct NodesView: View {
         let currentTrack = currentTrack(for: node)
         HStack(alignment: .top, spacing: 12) {
             Circle()
-                .fill(node.connected ? Color.green : Color.red)
+                .fill(node.connected ? Color.green : Color.secondary)
                 .frame(width: 12, height: 12)
                 .padding(.top, 5)
 
@@ -135,7 +135,7 @@ struct NodesView: View {
                 }
 
                 HStack(spacing: 10) {
-                    statusBadge(title: node.connected ? "Connected" : "Disconnected", tint: node.connected ? .green : .red)
+                    statusBadge(title: node.connected ? "Connected" : "Disconnected", tint: node.connected ? .green : .secondary)
                     statusBadge(title: playbackStatusText(node.status), tint: playbackStatusColor(node.status))
                 }
 
@@ -235,9 +235,9 @@ struct NodesView: View {
     private func statusBadge(title: String, tint: Color) -> some View {
         Text(title)
             .font(.caption.weight(.medium))
-            .foregroundStyle(tint)
+            .foregroundStyle(.white)
             .padding(.horizontal, 8)
             .padding(.vertical, 4)
-            .background(tint.opacity(0.14), in: Capsule())
+            .background(tint, in: Capsule())
     }
 }
