@@ -19,6 +19,7 @@ struct NowPlayingView: View {
     #endif
     @State private var showNodes = false
     @State private var dominantColor: Color = .clear
+    @State private var sliderTintColor: Color = .white
     @State private var suppressPositionSyncUntil = Date.distantPast
 
     private var playbackState: AppState.EffectivePlaybackState {
@@ -118,7 +119,12 @@ struct NowPlayingView: View {
                     in: 0...sliderDuration,
                     onEditingChanged: handleSeekEditingChanged
                 )
-                .tint(dominantColor)
+                .tint(sliderTintColor)
+                .background(alignment: .center) {
+                    Capsule()
+                        .fill(.white.opacity(0.15))
+                        .frame(height: 4)
+                }
                 .disabled(!hasCurrentTrack)
 
                     HStack {
@@ -210,7 +216,12 @@ struct NowPlayingView: View {
                         in: 0...100,
                         onEditingChanged: handleVolumeEditingChanged
                     )
-                    .tint(dominantColor)
+                    .tint(sliderTintColor)
+                    .background(alignment: .center) {
+                        Capsule()
+                            .fill(.white.opacity(0.15))
+                            .frame(height: 4)
+                    }
 
                     Image(systemName: "speaker.wave.3.fill")
                         .font(.caption)
@@ -589,8 +600,14 @@ struct NowPlayingView: View {
             let dg = g * factor + gray * (1 - factor)
             let db = b * factor + gray * (1 - factor)
 
+            let tintFactor: Double = 0.45
+            let tr = dr + (1.0 - dr) * tintFactor
+            let tg = dg + (1.0 - dg) * tintFactor
+            let tb = db + (1.0 - db) * tintFactor
+
             Task { @MainActor in
                 dominantColor = Color(red: dr, green: dg, blue: db)
+                sliderTintColor = Color(red: tr, green: tg, blue: tb)
             }
         }
     }
