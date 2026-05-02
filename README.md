@@ -40,4 +40,4 @@ tuist generate
 
 ## License
 
-Kanade is available under the MIT license. See [LICENSE](LICENSE) for more info.
+KanadeApp is available under the MIT license. See [LICENSE](LICENSE) for more info.
