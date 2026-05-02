@@ -4,7 +4,7 @@ import KanadeKit
 struct NodesView: View {
     @Environment(AppState.self) private var appState
 
-    private var remoteNodes: [Node] { appState.remoteNodes }
+    private var remoteNodes: [Node] { appState.visibleRemoteNodes }
 
     var body: some View {
         List {
@@ -40,7 +40,6 @@ struct NodesView: View {
                             appState.performSelectNode(node.id)
                         } label: {
                             nodeRow(node)
-                                .foregroundStyle(isLocalSession ? .secondary : .primary)
                         }
                         .buttonStyle(.plain)
                         .disabled(isLocalSession)
@@ -175,7 +174,7 @@ struct NodesView: View {
 
     private var localNode: Node? {
         guard let localNodeId = appState.localNodeId else { return nil }
-        return appState.client?.state?.nodes.first(where: { $0.id == localNodeId })
+        return appState.playbackState?.nodes.first(where: { $0.id == localNodeId })
     }
 
     private var localCurrentTrack: Track? {

@@ -331,10 +331,10 @@ struct NowPlayingView: View {
             return UIDevice.current.name
         }
         if let nodeId = appState.controlledNodeId,
-           let node = appState.client?.state?.nodes.first(where: { $0.id == nodeId }) {
+           let node = appState.playbackState?.nodes.first(where: { $0.id == nodeId }) {
             return node.name
         }
-        if let node = appState.client?.state?.nodes.first(where: \.connected) {
+        if let node = appState.playbackState?.nodes.first(where: \.connected) {
             return node.name
         }
         return "No Output"

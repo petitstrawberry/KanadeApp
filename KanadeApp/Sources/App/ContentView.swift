@@ -44,6 +44,9 @@ struct ContentView: View {
                 NodesView()
             }
             .environment(appState)
+            #if os(macOS)
+            .frame(minWidth: 360, idealWidth: 420, minHeight: 420, idealHeight: 520)
+            #endif
         }
     }
 
@@ -52,7 +55,9 @@ struct ContentView: View {
         #if os(iOS)
         iosContent
             .overlay(alignment: .top) {
-                connectionBanner
+                if horizontalSizeClass == .compact {
+                    connectionBanner
+                }
             }
         #else
         HStack(spacing: 0) {

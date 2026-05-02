@@ -5,7 +5,7 @@ struct OutputPickerMenuContent: View {
     @Environment(AppState.self) private var appState
 
     private var nodes: [Node] {
-        appState.client?.state?.nodes ?? []
+        appState.playbackState?.nodes ?? []
     }
 
     private var remoteNodes: [Node] {
