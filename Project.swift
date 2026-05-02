@@ -4,7 +4,7 @@ let project = Project(
     name: "KanadeApp",
     organizationName: "petitstrawberry",
     packages: [
-        .package(url: "https://github.com/petitstrawberry/KanadeKit.git", from: "0.2.0"),
+        .package(url: "https://github.com/petitstrawberry/KanadeKit.git", from: "0.3.0"),
         .package(url: "https://github.com/vtourraine/AcknowList.git", from: "3.0.0"),
     ],
     targets: [
@@ -52,6 +52,7 @@ let project = Project(
                 base: [
                     "INFOPLIST_KEY_CFBundle_DISPLAY_NAME": "Kanade",
                     "PRODUCT_DISPLAY_NAME": "Kanade",
+                    "ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME": "AccentColor",
                 ]
             ),
             additionalFiles: [".package.resolved"],
@@ -95,6 +96,7 @@ let project = Project(
                 base: [
                     "INFOPLIST_KEY_CFBundle_DISPLAY_NAME": "Kanade",
                     "PRODUCT_DISPLAY_NAME": "Kanade",
+                    "ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME": "AccentColor",
                 ]
             ),
             additionalFiles: [".package.resolved"],
