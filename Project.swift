@@ -12,7 +12,7 @@ let project = Project(
             name: "KanadeApp",
             platform: .iOS,
             product: .app,
-            bundleId: "dev.ichigo.KanadeApp",
+            bundleId: "dev.ichigo.Kanade",
             deploymentTarget: DeploymentTarget.iOS(targetVersion: "26.1", devices: [.iphone, .ipad]),
             infoPlist: .extendingDefault(
                 with: [
@@ -61,7 +61,7 @@ let project = Project(
             name: "KanadeAppMac",
             platform: .macOS,
             product: .app,
-            bundleId: "dev.ichigo.KanadeAppMac",
+            bundleId: "dev.ichigo.Kanade",
             deploymentTarget: DeploymentTarget.macOS(targetVersion: "26.0"),
             infoPlist: .extendingDefault(
                 with: [
@@ -105,7 +105,7 @@ let project = Project(
             name: "KanadeAppTests",
             platform: .iOS,
             product: .unitTests,
-            bundleId: "dev.ichigo.KanadeAppTests",
+            bundleId: "dev.ichigo.KanadeTests",
             infoPlist: .default,
             sources: ["KanadeApp/Tests/**"],
             dependencies: [
