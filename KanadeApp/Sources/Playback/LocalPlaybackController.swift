@@ -52,7 +52,7 @@ final class LocalPlaybackController {
     var currentIndex: Int? { queue.currentIndex }
     var currentTrack: Track? { queue.currentTrack }
     var positionSecs: Double { transportState.positionSecs }
-    var durationSecs: Double { max(transportState.durationSecs, currentTrack?.durationSecs ?? 0) }
+    var durationSecs: Double { transportState.durationSecs > 0 ? transportState.durationSecs : (currentTrack?.durationSecs ?? 0) }
     var volume: Int { transportState.volume }
     var repeatMode: RepeatMode { queue.repeatMode }
     var shuffleEnabled: Bool { queue.shuffleEnabled }
@@ -65,7 +65,7 @@ final class LocalPlaybackController {
             status: status,
             isPlayingLike: status == .playing || (status == .loading && playbackIntentIsPlaying),
             positionSecs: transportState.positionSecs,
-            durationSecs: max(transportState.durationSecs, queue.currentTrack?.durationSecs ?? 0),
+            durationSecs: transportState.durationSecs > 0 ? transportState.durationSecs : (queue.currentTrack?.durationSecs ?? 0),
             volume: transportState.volume,
             repeatMode: queue.repeatMode,
             shuffleEnabled: queue.shuffleEnabled
@@ -481,7 +481,7 @@ final class LocalPlaybackController {
 
         didPreloadCurrentNext = false
         transportState.positionSecs = 0
-        transportState.durationSecs = max(queue.currentTrack?.durationSecs ?? 0, 0)
+        transportState.durationSecs = 0
         emitSnapshotChange()
         preloadNextTrackIfNeeded()
     }
@@ -529,10 +529,9 @@ final class LocalPlaybackController {
         trackRecoveryAttempt = 0
         didPreloadCurrentNext = false
 
-        let durationHint = max(currentTrack.durationSecs ?? 0, 0)
         transportState.status = autoplay ? .loading : .paused
         transportState.positionSecs = 0
-        transportState.durationSecs = durationHint
+        transportState.durationSecs = 0
         emitSnapshotChange()
 
         let trackID = currentTrack.id

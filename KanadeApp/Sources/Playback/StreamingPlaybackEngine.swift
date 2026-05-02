@@ -27,8 +27,6 @@ final class StreamingPlaybackEngine {
     private var itemStatusObservation: NSKeyValueObservation?
     private var itemDurationObservation: NSKeyValueObservation?
     private var itemFinishedObservers: [(AVPlayerItem, NSObjectProtocol)] = []
-    private var naturallyEndedItemIDs: Set<ObjectIdentifier> = []
-    private var transitionedItemIDsAwaitingNaturalEnd: Set<ObjectIdentifier> = []
     private var shouldAutoplay = true
     private var hasNextPreloaded = false
     private var seekRequestID: UInt64 = 0
@@ -41,6 +39,13 @@ final class StreamingPlaybackEngine {
     var onStateChanged: ((StreamingTransportState) -> Void)?
     var onPlaybackFinished: (() -> Void)?
     var onTrackAdvanced: (() -> Void)?
+
+    private func makePlayerItem(url: URL) -> AVPlayerItem {
+        let asset = AVURLAsset(url: url, options: [
+            AVURLAssetPreferPreciseDurationAndTimingKey: true
+        ])
+        return AVPlayerItem(asset: asset)
+    }
 
     private(set) var state = StreamingTransportState(
         status: .idle,
@@ -55,7 +60,7 @@ final class StreamingPlaybackEngine {
         shouldAutoplay = autoplay
         hasNextPreloaded = false
 
-        let item = AVPlayerItem(url: signedURL)
+        let item = makePlayerItem(url: signedURL)
         let player = AVQueuePlayer(playerItem: item)
         player.volume = Float(state.volume) / 100.0
 
@@ -81,7 +86,7 @@ final class StreamingPlaybackEngine {
     func preloadNext(signedURL: URL) {
         guard let queuePlayer, !hasNextPreloaded else { return }
 
-        let item = AVPlayerItem(url: signedURL)
+        let item = makePlayerItem(url: signedURL)
         queuePlayer.insert(item, after: nil)
         hasNextPreloaded = true
         observeItemFinished(item)
@@ -97,7 +102,7 @@ final class StreamingPlaybackEngine {
         let shouldResume = shouldAutoplay || isPlayingLike(status: state.status)
         shouldAutoplay = shouldResume
 
-        let newItem = AVPlayerItem(url: signedURL)
+        let newItem = makePlayerItem(url: signedURL)
         queuePlayer.removeAllItems()
         queuePlayer.insert(newItem, after: nil)
 
@@ -211,26 +216,11 @@ final class StreamingPlaybackEngine {
         ) { [weak self] _ in
             Task { @MainActor [weak self] in
                 guard let self else { return }
-                let itemID = ObjectIdentifier(item)
 
-                self.naturallyEndedItemIDs.insert(itemID)
-
-                if self.transitionedItemIDsAwaitingNaturalEnd.remove(itemID) != nil {
-                    self.onTrackAdvanced?()
-                    return
-                }
-
-                // If transitionToItem already advanced to a new item, this
-                // notification is for the old item — nothing to do.
+                // Gapless transitions are handled by transitionToItem (currentItem KVO).
+                // This handler only fires for the last track in the queue.
                 guard item === self.currentPlayerItem else { return }
-
-                // Gapless: if a next item was preloaded, AVQueuePlayer will
-                // auto-advance currentItem shortly. Treat this as a pending
-                // transition instead of immediate playback end.
-                if self.hasNextPreloaded {
-                    self.transitionedItemIDsAwaitingNaturalEnd.insert(itemID)
-                    return
-                }
+                guard !self.hasNextPreloaded else { return }
 
                 self.state.positionSecs = self.resolvedDurationSecs(fallback: self.state.positionSecs)
                 self.updateState(.stopped)
@@ -258,12 +248,11 @@ final class StreamingPlaybackEngine {
     }
 
     private func transitionToItem(_ newItem: AVPlayerItem) {
-        let previousItem = currentPlayerItem
+        let hadPreviousItem = currentPlayerItem != nil
         currentPlayerItem = newItem
         seekDisplayOverride = nil
         state.positionSecs = 0
         state.durationSecs = 0
-        emitStateChanged()
 
         itemStatusObservation = newItem.observe(\.status, options: [.initial, .new]) { [weak self] item, _ in
             Task { @MainActor [weak self] in
@@ -284,15 +273,11 @@ final class StreamingPlaybackEngine {
 
         hasNextPreloaded = false
 
-        guard let previousItem else { return }
-
-        let previousItemID = ObjectIdentifier(previousItem)
-        if naturallyEndedItemIDs.remove(previousItemID) != nil {
-            transitionedItemIDsAwaitingNaturalEnd.remove(previousItemID)
+        if hadPreviousItem {
             onTrackAdvanced?()
-        } else {
-            transitionedItemIDsAwaitingNaturalEnd.insert(previousItemID)
         }
+
+        emitStateChanged()
     }
 
     private func handleTimeControlStatusChanged(_ timeControlStatus: AVPlayer.TimeControlStatus) {
@@ -492,6 +477,8 @@ final class StreamingPlaybackEngine {
                 guard let self else { return }
                 guard self.queuePlayer === observedPlayer else { return }
                 guard self.currentPlayerItem != nil else { return }
+                guard let playerItem = self.queuePlayer?.currentItem,
+                      playerItem === self.currentPlayerItem else { return }
                 self.state.positionSecs = self.displayPositionSecs(actualPositionSecs: self.sanitizedSeconds(time))
                 self.state.durationSecs = self.resolvedDurationSecs(fallback: self.state.durationSecs)
                 self.emitStateChanged()
@@ -578,8 +565,6 @@ final class StreamingPlaybackEngine {
             NotificationCenter.default.removeObserver(observer)
         }
         itemFinishedObservers.removeAll()
-        naturallyEndedItemIDs.removeAll()
-        transitionedItemIDsAwaitingNaturalEnd.removeAll()
 
         currentItemObservation = nil
         itemStatusObservation = nil
