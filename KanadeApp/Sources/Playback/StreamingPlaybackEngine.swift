@@ -31,6 +31,12 @@ final class StreamingPlaybackEngine {
     private var transitionedItemIDsAwaitingNaturalEnd: Set<ObjectIdentifier> = []
     private var shouldAutoplay = true
     private var hasNextPreloaded = false
+    private var seekRequestID: UInt64 = 0
+    private var seekTimeoutTask: Task<Void, Never>?
+    private var seekDisplayOverride: (requestID: UInt64, itemID: ObjectIdentifier, positionSecs: Double, expiresAt: Date)?
+
+    private static let seekTimeoutNanoseconds: UInt64 = 12_000_000_000
+    private static let seekDisplayOverrideDuration: TimeInterval = 8.0
 
     var onStateChanged: ((StreamingTransportState) -> Void)?
     var onPlaybackFinished: (() -> Void)?
@@ -78,17 +84,13 @@ final class StreamingPlaybackEngine {
     func replaceCurrentItem(signedURL: URL, seekTo positionSecs: Double) {
         guard let queuePlayer else {
             load(signedURL: signedURL, autoplay: true)
+            seek(to: positionSecs)
             return
         }
 
         let savedVolume = state.volume
-        let wasPlaying: Bool
-        if case .playing = state.status {
-            wasPlaying = true
-        } else {
-            wasPlaying = false
-        }
-        shouldAutoplay = wasPlaying
+        let shouldResume = shouldAutoplay || isPlayingLike(status: state.status)
+        shouldAutoplay = shouldResume
 
         let newItem = AVPlayerItem(url: signedURL)
         queuePlayer.removeAllItems()
@@ -99,18 +101,7 @@ final class StreamingPlaybackEngine {
         queuePlayer.volume = Float(savedVolume) / 100.0
 
         observeItem(newItem)
-
-        let target = CMTime(seconds: max(positionSecs, 0), preferredTimescale: 600)
-        queuePlayer.seek(to: target, toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] finished in
-            guard finished else { return }
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                self.state.positionSecs = max(positionSecs, 0)
-                if wasPlaying {
-                    queuePlayer.play()
-                }
-            }
-        }
+        beginSeek(to: positionSecs, resumePlayback: shouldResume)
     }
 
     func play() {
@@ -119,6 +110,7 @@ final class StreamingPlaybackEngine {
             return
         }
 
+        shouldAutoplay = true
         queuePlayer.play()
         if queuePlayer.timeControlStatus != .playing {
             updateState(.loading)
@@ -131,12 +123,16 @@ final class StreamingPlaybackEngine {
             return
         }
 
+        shouldAutoplay = false
         queuePlayer.pause()
         state.positionSecs = currentPositionSecs()
         updateState(currentPlayerItem == nil ? .stopped : .paused)
     }
 
     func stop() {
+        shouldAutoplay = false
+        cancelSeekTimeout()
+        seekDisplayOverride = nil
         cleanupPlayer()
         state.positionSecs = 0
         state.durationSecs = 0
@@ -147,15 +143,9 @@ final class StreamingPlaybackEngine {
         guard let queuePlayer else { return }
 
         let clampedPosition = max(0, min(positionSecs, resolvedDurationSecs(fallback: positionSecs)))
-        let target = CMTime(seconds: clampedPosition, preferredTimescale: 600)
-        queuePlayer.seek(to: target, toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] finished in
-            guard finished else { return }
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                self.state.positionSecs = clampedPosition
-                self.emitStateChanged()
-            }
-        }
+        let resumePlayback = shouldAutoplay || queuePlayer.rate > 0 || isPlayingLike(status: state.status)
+        shouldAutoplay = resumePlayback
+        beginSeek(to: clampedPosition, resumePlayback: resumePlayback)
     }
 
     func setVolume(_ volume: Int) {
@@ -169,7 +159,8 @@ final class StreamingPlaybackEngine {
         statusObservations = [
             player.observe(\.timeControlStatus, options: [.initial, .new]) { [weak self] player, _ in
                 Task { @MainActor [weak self] in
-                    self?.handleTimeControlStatusChanged(player.timeControlStatus)
+                    guard let self, player === self.queuePlayer else { return }
+                    self.handleTimeControlStatusChanged(player.timeControlStatus)
                 }
             }
         ]
@@ -177,6 +168,7 @@ final class StreamingPlaybackEngine {
         currentItemObservation = player.observe(\.currentItem, options: [.new]) { [weak self] player, change in
             Task { @MainActor [weak self] in
                 guard let self else { return }
+                guard player === self.queuePlayer else { return }
                 guard let newItem = change.newValue ?? player.currentItem,
                       newItem !== self.currentPlayerItem else { return }
 
@@ -188,19 +180,22 @@ final class StreamingPlaybackEngine {
     private func observeItem(_ item: AVPlayerItem) {
         itemStatusObservation = item.observe(\.status, options: [.initial, .new]) { [weak self] item, _ in
             Task { @MainActor [weak self] in
-                self?.handleItemStatusChanged(item.status)
+                guard let self, item === self.currentPlayerItem else { return }
+                self.handleItemStatusChanged(item.status)
             }
         }
 
         itemDurationObservation = item.observe(\.duration, options: [.initial, .new]) { [weak self] item, _ in
             Task { @MainActor [weak self] in
                 guard let self else { return }
+                guard item === self.currentPlayerItem else { return }
                 self.state.durationSecs = self.sanitizedSeconds(item.duration)
                 self.emitStateChanged()
             }
         }
 
         observeItemFinished(item)
+        observeItemPlaybackStalled(item)
     }
 
     private func observeItemFinished(_ item: AVPlayerItem) {
@@ -240,21 +235,41 @@ final class StreamingPlaybackEngine {
         itemFinishedObservers.append((item, observer))
     }
 
+    private func observeItemPlaybackStalled(_ item: AVPlayerItem) {
+        let observer = NotificationCenter.default.addObserver(
+            forName: .AVPlayerItemPlaybackStalled,
+            object: item,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self, item === self.currentPlayerItem else { return }
+                if self.shouldAutoplay {
+                    self.queuePlayer?.play()
+                }
+                self.updateState(.loading)
+            }
+        }
+        itemFinishedObservers.append((item, observer))
+    }
+
     private func transitionToItem(_ newItem: AVPlayerItem) {
         let previousItem = currentPlayerItem
         currentPlayerItem = newItem
+        seekDisplayOverride = nil
         state.positionSecs = 0
         state.durationSecs = 0
 
         itemStatusObservation = newItem.observe(\.status, options: [.initial, .new]) { [weak self] item, _ in
             Task { @MainActor [weak self] in
-                self?.handleItemStatusChanged(item.status)
+                guard let self, item === self.currentPlayerItem else { return }
+                self.handleItemStatusChanged(item.status)
             }
         }
 
         itemDurationObservation = newItem.observe(\.duration, options: [.initial, .new]) { [weak self] item, _ in
             Task { @MainActor [weak self] in
                 guard let self else { return }
+                guard item === self.currentPlayerItem else { return }
                 self.state.durationSecs = self.sanitizedSeconds(item.duration)
                 self.emitStateChanged()
             }
@@ -280,6 +295,11 @@ final class StreamingPlaybackEngine {
         case .paused:
             let currentStatus = state.status
             guard !matchesTerminalStatus(currentStatus) else { return }
+            if shouldAutoplay {
+                queuePlayer?.play()
+                updateState(.loading)
+                return
+            }
             updateState(.paused)
         case .waitingToPlayAtSpecifiedRate:
             updateState(.loading)
@@ -298,6 +318,7 @@ final class StreamingPlaybackEngine {
             state.durationSecs = resolvedDurationSecs(fallback: state.durationSecs)
             if shouldAutoplay {
                 queuePlayer?.play()
+                updateState(queuePlayer?.timeControlStatus == .playing ? .playing : .loading)
             } else {
                 queuePlayer?.pause()
                 updateState(.paused)
@@ -312,7 +333,7 @@ final class StreamingPlaybackEngine {
 
     private func updateState(_ status: StreamingPlaybackStatus) {
         state.status = status
-        state.positionSecs = currentPositionSecs()
+        state.positionSecs = displayPositionSecs(actualPositionSecs: currentPositionSecs())
         state.durationSecs = resolvedDurationSecs(fallback: state.durationSecs)
         emitStateChanged()
     }
@@ -321,18 +342,140 @@ final class StreamingPlaybackEngine {
         onStateChanged?(state)
     }
 
+    private func beginSeek(to positionSecs: Double, resumePlayback: Bool) {
+        guard let queuePlayer, let currentPlayerItem else { return }
+
+        seekRequestID &+= 1
+        let requestID = seekRequestID
+        let itemID = ObjectIdentifier(currentPlayerItem)
+        let clampedPosition = max(0, min(positionSecs, resolvedDurationSecs(fallback: positionSecs)))
+        let target = CMTime(seconds: clampedPosition, preferredTimescale: 600)
+
+        cancelSeekTimeout()
+        seekDisplayOverride = (
+            requestID: requestID,
+            itemID: itemID,
+            positionSecs: clampedPosition,
+            expiresAt: Date().addingTimeInterval(Self.seekDisplayOverrideDuration)
+        )
+        state.positionSecs = clampedPosition
+        if resumePlayback {
+            state.status = .loading
+        }
+        emitStateChanged()
+
+        queuePlayer.seek(to: target, toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] finished in
+            Task { @MainActor [weak self] in
+                self?.finishSeek(
+                    requestID: requestID,
+                    itemID: itemID,
+                    positionSecs: clampedPosition,
+                    resumePlayback: resumePlayback,
+                    finished: finished
+                )
+            }
+        }
+
+        seekTimeoutTask = Task { @MainActor [weak self] in
+            do {
+                try await Task.sleep(nanoseconds: Self.seekTimeoutNanoseconds)
+            } catch is CancellationError {
+                return
+            } catch {
+                return
+            }
+
+            guard let self else { return }
+            self.handleSeekTimeout(
+                requestID: requestID,
+                itemID: itemID,
+                positionSecs: clampedPosition,
+                resumePlayback: resumePlayback
+            )
+        }
+    }
+
+    private func finishSeek(
+        requestID: UInt64,
+        itemID: ObjectIdentifier,
+        positionSecs: Double,
+        resumePlayback: Bool,
+        finished: Bool
+    ) {
+        guard requestID == seekRequestID else { return }
+        guard currentPlayerItem.map(ObjectIdentifier.init) == itemID else { return }
+
+        cancelSeekTimeout()
+        state.positionSecs = positionSecs
+
+        if resumePlayback {
+            queuePlayer?.play()
+            updateState(queuePlayer?.timeControlStatus == .playing ? .playing : .loading)
+        } else if finished {
+            emitStateChanged()
+        } else {
+            updateState(.paused)
+        }
+    }
+
+    private func handleSeekTimeout(
+        requestID: UInt64,
+        itemID: ObjectIdentifier,
+        positionSecs: Double,
+        resumePlayback: Bool
+    ) {
+        guard requestID == seekRequestID else { return }
+        guard currentPlayerItem.map(ObjectIdentifier.init) == itemID else { return }
+
+        seekTimeoutTask = nil
+        state.positionSecs = positionSecs
+        if resumePlayback {
+            queuePlayer?.play()
+            updateState(.loading)
+        } else {
+            emitStateChanged()
+        }
+    }
+
+    private func cancelSeekTimeout() {
+        seekTimeoutTask?.cancel()
+        seekTimeoutTask = nil
+    }
+
     private func setupPeriodicTimeObserver() {
         guard let queuePlayer else { return }
+        let observedPlayer = queuePlayer
+        let observedItem = currentPlayerItem
 
         let interval = CMTime(seconds: 0.5, preferredTimescale: 600)
         timeObserver = queuePlayer.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] time in
             Task { @MainActor [weak self] in
                 guard let self else { return }
-                self.state.positionSecs = self.sanitizedSeconds(time)
+                guard self.queuePlayer === observedPlayer else { return }
+                guard self.currentPlayerItem === observedItem else { return }
+                self.state.positionSecs = self.displayPositionSecs(actualPositionSecs: self.sanitizedSeconds(time))
                 self.state.durationSecs = self.resolvedDurationSecs(fallback: self.state.durationSecs)
                 self.emitStateChanged()
             }
         }
+    }
+
+    private func displayPositionSecs(actualPositionSecs: Double) -> Double {
+        guard let override = seekDisplayOverride else { return actualPositionSecs }
+        guard override.requestID == seekRequestID,
+              currentPlayerItem.map(ObjectIdentifier.init) == override.itemID,
+              override.expiresAt > Date()
+        else {
+            seekDisplayOverride = nil
+            return actualPositionSecs
+        }
+
+        if abs(actualPositionSecs - override.positionSecs) < 0.75 {
+            seekDisplayOverride = nil
+            return actualPositionSecs
+        }
+
+        return override.positionSecs
     }
 
     private func currentPositionSecs() -> Double {
@@ -366,7 +509,18 @@ final class StreamingPlaybackEngine {
         }
     }
 
+    private func isPlayingLike(status: StreamingPlaybackStatus) -> Bool {
+        switch status {
+        case .loading, .playing:
+            return true
+        case .idle, .paused, .stopped, .error:
+            return false
+        }
+    }
+
     private func cleanupPlayer() {
+        cancelSeekTimeout()
+        seekDisplayOverride = nil
         if let timeObserver, let queuePlayer {
             queuePlayer.removeTimeObserver(timeObserver)
         }

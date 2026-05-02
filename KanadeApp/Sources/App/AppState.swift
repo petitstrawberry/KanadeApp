@@ -54,8 +54,8 @@ final class AppState {
     @ObservationIgnored private static let useTLSKey = "kanade.useTLS"
     @ObservationIgnored private static let allowSelfSignedKey = "kanade.allowSelfSigned"
     @ObservationIgnored private static let trustedCADataKey = "kanade.trustedCAData"
-    @ObservationIgnored private static let fallbackConnectionPollInterval: TimeInterval = 5.0
-    @ObservationIgnored private static let reconnectingIndicatorDelay: TimeInterval = 3.0
+    @ObservationIgnored private static let fallbackConnectionPollInterval: TimeInterval = 1.0
+    @ObservationIgnored private static let reconnectingIndicatorDelay: TimeInterval = 0.75
 
     @ObservationIgnored private let defaults = UserDefaults.standard
     @ObservationIgnored private var didAttemptStartupConnect = false
@@ -330,7 +330,9 @@ final class AppState {
             host: serverAddress,
             port: serverPort,
             useTLS: useTLS,
-            reconnectPolicy: ReconnectPolicy(initialDelay: 2.0, maxDelay: 10.0, base: 2.0),
+            reconnectPolicy: ReconnectPolicy(initialDelay: 1.0, maxDelay: 15.0, base: 1.7, maxAttempts: Int.max),
+            heartbeatTimeout: 15.0,
+            requestTimeout: 8.0,
             tlsConfiguration: tlsConfig
         )
 
@@ -382,10 +384,18 @@ final class AppState {
             isConnected: client?.connected ?? false,
             reconnectExhausted: client?.reconnectExhausted ?? false
         )
+        let previous = connectionSnapshot
         if connectionSnapshot != next {
             connectionSnapshot = next
         }
         updateReconnectingIndicatorVisibility()
+
+        if !previous.reconnectExhausted,
+           next.reconnectExhausted,
+           let client,
+           manuallyDisconnectedClientID != ObjectIdentifier(client) {
+            autoSwitchToLocalOnUnexpectedDisconnect(client)
+        }
     }
 
     private func updateReconnectingIndicatorVisibility() {
