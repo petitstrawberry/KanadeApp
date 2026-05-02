@@ -1,4 +1,4 @@
-# Kanade
+# KanadeApp
 
 Native iOS & macOS client for [kanade](https://github.com/petitstrawberry/kanade) — a self-hosted, multi-room music system.
 
