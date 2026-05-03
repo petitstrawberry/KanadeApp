@@ -4,7 +4,7 @@ let project = Project(
     name: "KanadeApp",
     organizationName: "petitstrawberry",
     packages: [
-        .package(url: "https://github.com/petitstrawberry/KanadeKit.git", from: "0.5.0"),
+        .package(url: "https://github.com/petitstrawberry/KanadeKit.git", from: "0.6.0"),
         .package(url: "https://github.com/vtourraine/AcknowList.git", from: "3.0.0"),
     ],
     targets: [
