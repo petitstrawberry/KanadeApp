@@ -76,6 +76,7 @@ jobs:
             -authenticationKeyID "${{ secrets.APP_STORE_CONNECT_KEY_ID }}" \
             -authenticationKeyIssuerID "${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}" \
             -allowProvisioningUpdates \
+            DEVELOPMENT_TEAM=${{ secrets.TEAM_ID }} \
             MARKETING_VERSION=${{ env.MARKETING_VERSION }} \
             CURRENT_PROJECT_VERSION=${{ env.BUILD_NUMBER }} \
             GCC_GENERATE_DEBUGGING_SYMBOLS=YES \
@@ -164,6 +165,7 @@ jobs:
             -authenticationKeyID "${{ secrets.APP_STORE_CONNECT_KEY_ID }}" \
             -authenticationKeyIssuerID "${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}" \
             -allowProvisioningUpdates \
+            DEVELOPMENT_TEAM=${{ secrets.TEAM_ID }} \
             MARKETING_VERSION=${{ env.MARKETING_VERSION }} \
             CURRENT_PROJECT_VERSION=${{ env.BUILD_NUMBER }} \
             GCC_GENERATE_DEBUGGING_SYMBOLS=YES \
