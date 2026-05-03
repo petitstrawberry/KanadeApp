@@ -13,7 +13,11 @@ struct ArtistDetailView: View {
     var body: some View {
         ScrollView {
             if let errorMessage {
-                ContentUnavailableView("Unable to Load Artist", systemImage: "exclamationmark.triangle", description: Text(errorMessage))
+                 VStack(spacing: 16) {
+                     ContentUnavailableView("Unable to Load Artist", systemImage: "exclamationmark.triangle", description: Text(errorMessage))
+                     Button("Retry") { Task { await loadAlbums() } }
+                         .buttonStyle(.bordered)
+                 }
                     .frame(maxWidth: .infinity, minHeight: 240)
                     .padding()
             } else if isLoading && albums.isEmpty {
@@ -55,7 +59,7 @@ struct ArtistDetailView: View {
         errorMessage = nil
 
         do {
-            albums = try await client.getArtistAlbums(artist: artist)
+            albums = try await withAutoRetry { try await client.getArtistAlbums(artist: artist) }
         } catch {
             errorMessage = error.localizedDescription
         }

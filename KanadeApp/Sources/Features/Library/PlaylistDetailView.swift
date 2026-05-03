@@ -42,7 +42,11 @@ struct PlaylistDetailView: View {
                 }
 
                 if let errorMessage {
-                    ContentUnavailableView("Unable to Load Tracks", systemImage: "exclamationmark.triangle", description: Text(errorMessage))
+                    VStack(spacing: 16) {
+                        ContentUnavailableView("Unable to Load Tracks", systemImage: "exclamationmark.triangle", description: Text(errorMessage))
+                        Button("Retry") { Task { await loadTracks() } }
+                            .buttonStyle(.bordered)
+                    }
                         .frame(maxWidth: .infinity, minHeight: 240)
                         .trackListRowStyle()
                 } else if tracks.isEmpty && !isLoading {
@@ -225,7 +229,7 @@ struct PlaylistDetailView: View {
         errorMessage = nil
 
         do {
-            tracks = try await client.getPlaylistTracks(playlistId: currentPlaylist.id)
+            tracks = try await withAutoRetry { try await client.getPlaylistTracks(playlistId: currentPlaylist.id) }
         } catch {
             errorMessage = error.localizedDescription
         }

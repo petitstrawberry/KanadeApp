@@ -25,8 +25,12 @@ struct PlaylistsView: View {
             if isLoading && playlists.isEmpty {
                 ProgressView("Loading Playlists")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if let errorMessage {
-                ContentUnavailableView("Unable to Load Playlists", systemImage: "square.stack", description: Text(errorMessage))
+             } else if let errorMessage {
+                VStack(spacing: 16) {
+                    ContentUnavailableView("Unable to Load Playlists", systemImage: "square.stack", description: Text(errorMessage))
+                    Button("Retry") { Task { await loadPlaylists() } }
+                        .buttonStyle(.bordered)
+                }
             } else {
                 List(selection: selectionBinding) {
                     Button {
@@ -227,7 +231,7 @@ struct PlaylistsView: View {
         errorMessage = nil
 
         do {
-            playlists = try await client.getPlaylists()
+            playlists = try await withAutoRetry { try await client.getPlaylists() }
         } catch {
             if let kanadeError = error as? KanadeError {
                 errorMessage = String(describing: kanadeError)

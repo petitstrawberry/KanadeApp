@@ -16,8 +16,12 @@ struct AlbumsView: View {
             if isLoading && albums.isEmpty {
                 ProgressView("Loading Albums")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if let errorMessage {
-                ContentUnavailableView("Unable to Load Albums", systemImage: "square.stack", description: Text(errorMessage))
+             } else if let errorMessage {
+                VStack(spacing: 16) {
+                    ContentUnavailableView("Unable to Load Albums", systemImage: "square.stack", description: Text(errorMessage))
+                    Button("Retry") { Task { await loadAlbums() } }
+                        .buttonStyle(.bordered)
+                }
             } else {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 16) {
@@ -119,7 +123,7 @@ struct AlbumsView: View {
         errorMessage = nil
 
         do {
-            albums = try await client.getAlbums()
+            albums = try await withAutoRetry { try await client.getAlbums() }
         } catch {
             if let kanadeError = error as? KanadeError {
                 errorMessage = String(describing: kanadeError)

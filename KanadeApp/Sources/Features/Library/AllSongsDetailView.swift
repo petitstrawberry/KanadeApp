@@ -25,7 +25,11 @@ struct AllSongsDetailView: View {
 
             Section {
                 if let errorMessage {
-                    ContentUnavailableView("Unable to Load Songs", systemImage: "exclamationmark.triangle", description: Text(errorMessage))
+                    VStack(spacing: 16) {
+                        ContentUnavailableView("Unable to Load Songs", systemImage: "exclamationmark.triangle", description: Text(errorMessage))
+                        Button("Retry") { Task { await loadTracks() } }
+                            .buttonStyle(.bordered)
+                    }
                         .frame(maxWidth: .infinity, minHeight: 240)
                         .trackListRowStyle()
                 } else if tracks.isEmpty {
@@ -166,7 +170,7 @@ struct AllSongsDetailView: View {
         errorMessage = nil
 
         do {
-            tracks = try await client.getTracks()
+            tracks = try await withAutoRetry { try await client.getTracks() }
         } catch {
             errorMessage = error.localizedDescription
         }

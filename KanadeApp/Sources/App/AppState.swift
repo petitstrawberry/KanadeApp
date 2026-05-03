@@ -56,6 +56,7 @@ final class AppState {
     @ObservationIgnored private static let trustedCADataKey = "kanade.trustedCAData"
     @ObservationIgnored private static let fallbackConnectionPollInterval: TimeInterval = 1.0
     @ObservationIgnored private static let reconnectingIndicatorDelay: TimeInterval = 0.75
+    @ObservationIgnored private static let autoRetryDelay: TimeInterval = 30.0
 
     @ObservationIgnored private let defaults = UserDefaults.standard
     @ObservationIgnored private var didAttemptStartupConnect = false
@@ -68,6 +69,7 @@ final class AppState {
     @ObservationIgnored private var lastSentQueueTrackIDs: [String]?
     @ObservationIgnored private var connectionMonitorTask: Task<Void, Never>?
     @ObservationIgnored private var reconnectingIndicatorTask: Task<Void, Never>?
+    @ObservationIgnored private var autoRetryTask: Task<Void, Never>?
     private var lastPrefetchQueueKey: String?
 
     var showRemoteUnavailablePrompt = false
@@ -334,6 +336,8 @@ final class AppState {
     }
 
     func connect() {
+        autoRetryTask?.cancel()
+        autoRetryTask = nil
         disconnect()
         persistConnectionSettings()
 
@@ -408,6 +412,7 @@ final class AppState {
            let client,
            manuallyDisconnectedClientID != ObjectIdentifier(client) {
             autoSwitchToLocalOnUnexpectedDisconnect(client)
+            scheduleAutoRetry()
         }
     }
 
@@ -436,6 +441,21 @@ final class AppState {
             guard let self, self.isReconnectPending else { return }
             self.showReconnectingIndicator = true
             self.reconnectingIndicatorTask = nil
+        }
+    }
+
+    private func scheduleAutoRetry() {
+        autoRetryTask?.cancel()
+        autoRetryTask = Task { @MainActor [weak self] in
+            do {
+                try await Task.sleep(for: .seconds(Self.autoRetryDelay))
+            } catch is CancellationError {
+                return
+            } catch {
+                return
+            }
+            guard let self, self.connectionRequiresManualRetry else { return }
+            self.retryConnection()
         }
     }
 
