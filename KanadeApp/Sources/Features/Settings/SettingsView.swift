@@ -131,7 +131,7 @@ struct SettingsView: View {
                     Text("Kanade")
                 }
                 LabeledContent("Version") {
-                    Text("1.0.1")
+                    Text("1.0.2")
                 }
                 NavigationLink("Acknowledgements") {
                     AcknowListSwiftUIView()
