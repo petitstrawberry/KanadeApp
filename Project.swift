@@ -80,6 +80,11 @@ let project = Project(
             ),
             sources: ["KanadeApp/Sources/**"],
             resources: ["KanadeApp/Resources/**"],
+            entitlements: .dictionary([
+                "com.apple.security.app-sandbox": .boolean(true),
+                "com.apple.security.network.client": .boolean(true),
+                "com.apple.security.files.user-selected.read-only": .boolean(true),
+            ]),
             scripts: [
                 .post(
                     script: """
@@ -97,7 +102,7 @@ let project = Project(
                 base: [
                     "INFOPLIST_KEY_CFBundle_DISPLAY_NAME": "Kanade",
                     "PRODUCT_DISPLAY_NAME": "Kanade",
-                    "ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME": "AccentColor",
+                    "ASSETCATALLOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME": "AccentColor",
                     "MARKETING_VERSION": "1.0.1",
                     "CURRENT_PROJECT_VERSION": "1",
                 ],
