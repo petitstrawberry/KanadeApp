@@ -1,0 +1,68 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [develop, main, release/*]
+  push:
+    branches: [develop]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  build-ios:
+    name: "Build iOS"
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jdx/mise-action@v4
+
+      - name: Generate & Build
+        run: |
+          tuist generate
+          xcodebuild build \
+            -workspace KanadeApp.xcworkspace \
+            -scheme KanadeApp \
+            -destination "platform=iOS Simulator,name=iPhone 17" \
+            -configuration Debug \
+            CODE_SIGNING_ALLOWED=NO
+
+  build-macos:
+    name: "Build macOS"
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jdx/mise-action@v4
+
+      - name: Generate & Build
+        run: |
+          tuist generate
+          xcodebuild build \
+            -workspace KanadeApp.xcworkspace \
+            -scheme KanadeAppMac \
+            -destination "platform=macOS" \
+            -configuration Debug \
+            CODE_SIGNING_ALLOWED=NO
+
+  test:
+    name: "Test"
+    runs-on: macos-15
+    needs: [build-ios]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jdx/mise-action@v4
+
+      - name: Generate & Test
+        run: |
+          tuist generate
+          xcodebuild test \
+            -workspace KanadeApp.xcworkspace \
+            -scheme KanadeAppTests \
+            -destination "platform=iOS Simulator,name=iPhone 17" \
+            -configuration Debug \
+            CODE_SIGNING_ALLOWED=NO
