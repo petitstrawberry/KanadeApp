@@ -23,7 +23,7 @@ struct AlbumsView: View {
                     LazyVStack(alignment: .leading, spacing: 16) {
                         LazyVGrid(columns: albumColumns, spacing: 16) {
                             NavigationLink {
-                                AllSongsPlaceholderView()
+                                AllSongsDetailView()
                             } label: {
                                 AlbumTile(
                                     album: allSongsAlbum,
