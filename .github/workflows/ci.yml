@@ -67,7 +67,8 @@ jobs:
           nix develop --command tuist generate
           xcodebuild test \
             -workspace KanadeApp.xcworkspace \
-            -scheme KanadeAppTests \
+            -scheme KanadeApp \
             -destination "platform=iOS Simulator,name=iPhone 17" \
             -configuration Debug \
+            -only-testing:KanadeAppTests \
             CODE_SIGNING_ALLOWED=NO
