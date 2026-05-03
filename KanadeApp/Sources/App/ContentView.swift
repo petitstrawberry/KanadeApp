@@ -69,20 +69,6 @@ struct ContentView: View {
                     .transition(.move(edge: .trailing))
             }
         }
-        .toolbar(id: "Kanade.MainToolbar") {
-            ToolbarItem(id: "toggleQueue", placement: .primaryAction) {
-                Button {
-                    withAnimation(.easeInOut(duration: 0.2)) {
-                        shellUI.isQueuePanelPresented.toggle()
-                    }
-                } label: {
-                    Image(systemName: "list.bullet")
-                        .foregroundStyle(shellUI.isQueuePanelPresented ? Color.accentColor : Color.secondary)
-                }
-                .help("Toggle Queue")
-            }
-            .defaultCustomization(.visible, options: .alwaysAvailable)
-        }
         #endif
     }
 
