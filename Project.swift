@@ -27,6 +27,7 @@ let project = Project(
                         "_kanade._tcp",
                     ],
                     "NSLocalNetworkUsageDescription": "Kanade uses the local network to discover and connect to music servers.",
+                    "ITSAppUsesNonExemptEncryption": false,
                 ]
             ),
             sources: ["KanadeApp/Sources/**"],
@@ -74,6 +75,7 @@ let project = Project(
                     "NSLocalNetworkUsageDescription": "Kanade uses the local network to discover and connect to music servers.",
                     "NSSupportsAutomaticTermination": true,
                     "NSSupportsSuddenTermination": true,
+                    "ITSAppUsesNonExemptEncryption": false,
                 ]
             ),
             sources: ["KanadeApp/Sources/**"],
