@@ -49,7 +49,7 @@ let project = Project(
                     "INFOPLIST_KEY_CFBundle_DISPLAY_NAME": "Kanade",
                     "PRODUCT_DISPLAY_NAME": "Kanade",
                     "ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME": "AccentColor",
-                    "MARKETING_VERSION": "1.0.0",
+                    "MARKETING_VERSION": "1.0.1",
                     "CURRENT_PROJECT_VERSION": "1",
                 ]
             ),
@@ -96,7 +96,7 @@ let project = Project(
                     "INFOPLIST_KEY_CFBundle_DISPLAY_NAME": "Kanade",
                     "PRODUCT_DISPLAY_NAME": "Kanade",
                     "ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME": "AccentColor",
-                    "MARKETING_VERSION": "1.0.0",
+                    "MARKETING_VERSION": "1.0.1",
                     "CURRENT_PROJECT_VERSION": "1",
                 ],
                 debug: [
