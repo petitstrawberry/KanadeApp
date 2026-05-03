@@ -53,6 +53,8 @@ let project = Project(
                     "INFOPLIST_KEY_CFBundle_DISPLAY_NAME": "Kanade",
                     "PRODUCT_DISPLAY_NAME": "Kanade",
                     "ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME": "AccentColor",
+                    "MARKETING_VERSION": "1.0.0",
+                    "CURRENT_PROJECT_VERSION": "1",
                 ]
             ),
             additionalFiles: [".package.resolved"],
@@ -74,6 +76,8 @@ let project = Project(
                         "_kanade._tcp",
                     ],
                     "NSLocalNetworkUsageDescription": "Kanade uses the local network to discover and connect to music servers.",
+                    "NSSupportsAutomaticTermination": true,
+                    "NSSupportsSuddenTermination": true,
                 ]
             ),
             sources: ["KanadeApp/Sources/**"],
@@ -97,6 +101,8 @@ let project = Project(
                     "INFOPLIST_KEY_CFBundle_DISPLAY_NAME": "Kanade",
                     "PRODUCT_DISPLAY_NAME": "Kanade",
                     "ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME": "AccentColor",
+                    "MARKETING_VERSION": "1.0.0",
+                    "CURRENT_PROJECT_VERSION": "1",
                 ]
             ),
             additionalFiles: [".package.resolved"],
