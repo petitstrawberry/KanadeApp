@@ -65,6 +65,7 @@ final class AppState {
     @ObservationIgnored private var localSessionRegistrationPending = false
     @ObservationIgnored private var isLocalPlaybackTearingDown = false
     @ObservationIgnored private var lastSentLocalSessionUpdateKey: LocalSessionUpdateKey?
+    @ObservationIgnored private var lastSentQueueTrackIDs: [String]?
     @ObservationIgnored private var connectionMonitorTask: Task<Void, Never>?
     @ObservationIgnored private var reconnectingIndicatorTask: Task<Void, Never>?
     private var lastPrefetchQueueKey: String?
@@ -682,6 +683,7 @@ final class AppState {
         localSessionRegistrationPending = false
         localSessionRegistered = false
         lastSentLocalSessionUpdateKey = nil
+        lastSentQueueTrackIDs = nil
         localNodeId = nil
         localPlayback?.stop()
         localPlayback = nil
@@ -729,6 +731,7 @@ final class AppState {
         localSessionRegistrationPending = true
         localSessionRegistered = false
         lastSentLocalSessionUpdateKey = nil
+        lastSentQueueTrackIDs = nil
         client.localSessionStart(deviceName: currentDeviceName, deviceId: deviceId)
     }
 
@@ -768,11 +771,13 @@ final class AppState {
             localSessionRegistered = false
             localSessionRegistrationPending = false
             lastSentLocalSessionUpdateKey = nil
+            lastSentQueueTrackIDs = nil
             return
         }
 
+        let trackIDs = queue.map(\.id)
         let updateKey = LocalSessionUpdateKey(
-            trackIDs: queue.map(\ .id),
+            trackIDs: trackIDs,
             currentIndex: currentIndex,
             status: status,
             positionMillis: Int((positionSecs * 1000).rounded()),
@@ -784,8 +789,16 @@ final class AppState {
         guard updateKey != lastSentLocalSessionUpdateKey else { return }
         lastSentLocalSessionUpdateKey = updateKey
 
+        let queueToSend: [Track]?
+        if trackIDs == lastSentQueueTrackIDs {
+            queueToSend = nil
+        } else {
+            lastSentQueueTrackIDs = trackIDs
+            queueToSend = queue
+        }
+
         client.localSessionUpdate(
-            queue: queue,
+            queue: queueToSend,
             currentIndex: currentIndex,
             positionSecs: positionSecs,
             status: status,
@@ -984,6 +997,7 @@ extension AppState: KanadeClientDelegate {
             self.localSessionRegistered = false
             self.localSessionRegistrationPending = false
             self.lastSentLocalSessionUpdateKey = nil
+            self.lastSentQueueTrackIDs = nil
             self.localNodeId = nil
             if self.controlTarget == .local {
                 self.restoreLocalPlaybackIfNeeded()
@@ -1008,6 +1022,7 @@ extension AppState: KanadeClientDelegate {
             self.localSessionRegistered = false
             self.localSessionRegistrationPending = false
             self.lastSentLocalSessionUpdateKey = nil
+            self.lastSentQueueTrackIDs = nil
         }
     }
 
@@ -1055,6 +1070,7 @@ extension AppState: KanadeClientDelegate {
                 self.localSessionRegistered = false
                 self.localSessionRegistrationPending = false
                 self.lastSentLocalSessionUpdateKey = nil
+                self.lastSentQueueTrackIDs = nil
                 shouldFlushLocalSessionUpdate = false
             } else {
                 shouldFlushLocalSessionUpdate = false
