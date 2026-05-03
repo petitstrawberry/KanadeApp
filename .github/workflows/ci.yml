@@ -13,12 +13,12 @@ concurrency:
 jobs:
   build-ios:
     name: "Build iOS"
-    runs-on: macos-15
+    runs-on: macos-26
     steps:
       - uses: actions/checkout@v4
 
       - name: Install Tuist
-        run: curl -Ls https://install.tuist.io | bash
+        run: brew install tuist
 
       - name: Generate & Build
         run: |
@@ -32,12 +32,12 @@ jobs:
 
   build-macos:
     name: "Build macOS"
-    runs-on: macos-15
+    runs-on: macos-26
     steps:
       - uses: actions/checkout@v4
 
       - name: Install Tuist
-        run: curl -Ls https://install.tuist.io | bash
+        run: brew install tuist
 
       - name: Generate & Build
         run: |
@@ -51,13 +51,13 @@ jobs:
 
   test:
     name: "Test"
-    runs-on: macos-15
+    runs-on: macos-26
     needs: [build-ios]
     steps:
       - uses: actions/checkout@v4
 
       - name: Install Tuist
-        run: curl -Ls https://install.tuist.io | bash
+        run: brew install tuist
 
       - name: Generate & Test
         run: |
