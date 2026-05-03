@@ -1,0 +1,214 @@
+name: TestFlight
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: testflight-${{ github.ref }}
+  cancel-in-progress: true
+
+# ---------------------------------------------------------------------------
+# Required GitHub Secrets (Settings → Secrets and variables → Actions):
+#
+#   CERTIFICATES_P12              — Base64-encoded Apple Distribution .p12
+#   CERTIFICATES_P12_PASSWORD     — Password for the .p12
+#   PROVISIONING_PROFILE_IOS      — Base64-encoded iOS App Store .mobileprovision
+#   PROVISIONING_PROFILE_MAC      — Base64-encoded macOS App Store .provisionprofile
+#   TEAM_ID                       — Apple Developer Team ID (e.g. ABC123DEF4)
+#   APP_STORE_CONNECT_ISSUER_ID   — ASC API Issuer ID
+#   APP_STORE_CONNECT_KEY_ID      — ASC API Key ID
+#   APP_STORE_CONNECT_PRIVATE_KEY — ASC API .p8 private key contents
+#
+# Setup guide:
+#   1. developer.apple.com → Certificates → "Apple Distribution" cert
+#   2. Export .p12: base64 -i Cert.p12 | pbcopy
+#   3. developer.apple.com → Profiles → "App Store" profiles for iOS & macOS
+#   4. base64 -i Profile.mobileprovision | pbcopy
+#   5. appstoreconnect.apple.com → Users and Access → Integrations → App Store Connect API
+#      → Generate key → download .p8 → paste contents into secret
+# ---------------------------------------------------------------------------
+
+env:
+  MARKETING_VERSION: "1.0.0"
+  BUILD_NUMBER: ${{ github.run_number }}
+
+jobs:
+  ios:
+    name: "iOS → TestFlight"
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v5
+      - uses: cachix/install-nix-action@v30
+        with:
+          github_access_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Import Signing Certificate
+        uses: apple-actions/import-codesign-certs@v2
+        with:
+          p12-file-base64: ${{ secrets.CERTIFICATES_P12 }}
+          p12-password: ${{ secrets.CERTIFICATES_P12_PASSWORD }}
+
+      - name: Install Provisioning Profile
+        run: |
+          mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
+          echo "${{ secrets.PROVISIONING_PROFILE_IOS }}" \
+            | base64 --decode \
+            > ~/Library/MobileDevice/Provisioning\ Profiles/ios.mobileprovision
+
+      - name: Setup App Store Connect API Key
+        run: |
+          mkdir -p ~/private_keys
+          echo "${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}" \
+            > ~/private_keys/AuthKey_${{ secrets.APP_STORE_CONNECT_KEY_ID }}.p8
+
+      - name: Archive
+        run: |
+          nix develop --command tuist install
+          nix develop --command tuist generate
+          xcodebuild archive \
+            -workspace KanadeApp.xcworkspace \
+            -scheme KanadeApp \
+            -destination "generic/platform=iOS" \
+            -archivePath build/KanadeApp.xcarchive \
+            -authenticationKeyPath ~/private_keys \
+            -authenticationKeyID "${{ secrets.APP_STORE_CONNECT_KEY_ID }}" \
+            -authenticationKeyIssuerID "${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}" \
+            -allowProvisioningUpdates \
+            MARKETING_VERSION=${{ env.MARKETING_VERSION }} \
+            CURRENT_PROJECT_VERSION=${{ env.BUILD_NUMBER }} \
+            GCC_GENERATE_DEBUGGING_SYMBOLS=YES \
+            DEBUG_INFORMATION_FORMAT=dwarf-with-dsym
+
+      - name: Export IPA
+        run: |
+          cat > ExportOptions.plist << 'PLIST'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+            "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key>
+            <string>app-store</string>
+            <key>teamID</key>
+            <string>${{ secrets.TEAM_ID }}</string>
+            <key>uploadSymbols</key>
+            <true/>
+          </dict>
+          </plist>
+          PLIST
+
+          xcodebuild -exportArchive \
+            -archivePath build/KanadeApp.xcarchive \
+            -exportOptionsPlist ExportOptions.plist \
+            -exportPath build/export \
+            -authenticationKeyPath ~/private_keys \
+            -authenticationKeyID "${{ secrets.APP_STORE_CONNECT_KEY_ID }}" \
+            -authenticationKeyIssuerID "${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}" \
+            -allowProvisioningUpdates
+
+      - name: Upload to TestFlight
+        run: |
+          xcrun altool --upload-app \
+            --type ios \
+            --file build/export/*.ipa \
+            --apiKey "${{ secrets.APP_STORE_CONNECT_KEY_ID }}" \
+            --apiIssuer "${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}"
+
+      - name: Upload Archive on Failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-archive
+          path: build/KanadeApp.xcarchive
+
+  macos:
+    name: "macOS → TestFlight"
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v5
+      - uses: cachix/install-nix-action@v30
+        with:
+          github_access_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Import Signing Certificate
+        uses: apple-actions/import-codesign-certs@v2
+        with:
+          p12-file-base64: ${{ secrets.CERTIFICATES_P12 }}
+          p12-password: ${{ secrets.CERTIFICATES_P12_PASSWORD }}
+
+      - name: Install Provisioning Profile
+        run: |
+          mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
+          echo "${{ secrets.PROVISIONING_PROFILE_MAC }}" \
+            | base64 --decode \
+            > ~/Library/MobileDevice/Provisioning\ Profiles/mac.provisionprofile
+
+      - name: Setup App Store Connect API Key
+        run: |
+          mkdir -p ~/private_keys
+          echo "${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}" \
+            > ~/private_keys/AuthKey_${{ secrets.APP_STORE_CONNECT_KEY_ID }}.p8
+
+      - name: Archive
+        run: |
+          nix develop --command tuist install
+          nix develop --command tuist generate
+          xcodebuild archive \
+            -workspace KanadeApp.xcworkspace \
+            -scheme KanadeAppMac \
+            -destination "generic/platform=macOS" \
+            -archivePath build/KanadeAppMac.xcarchive \
+            -authenticationKeyPath ~/private_keys \
+            -authenticationKeyID "${{ secrets.APP_STORE_CONNECT_KEY_ID }}" \
+            -authenticationKeyIssuerID "${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}" \
+            -allowProvisioningUpdates \
+            MARKETING_VERSION=${{ env.MARKETING_VERSION }} \
+            CURRENT_PROJECT_VERSION=${{ env.BUILD_NUMBER }} \
+            GCC_GENERATE_DEBUGGING_SYMBOLS=YES \
+            DEBUG_INFORMATION_FORMAT=dwarf-with-dsym
+
+      - name: Export Mac App
+        run: |
+          cat > ExportOptions.plist << 'PLIST'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+            "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key>
+            <string>app-store</string>
+            <key>teamID</key>
+            <string>${{ secrets.TEAM_ID }}</string>
+            <key>uploadSymbols</key>
+            <true/>
+            <key>platform</key>
+            <string>osx</string>
+          </dict>
+          </plist>
+          PLIST
+
+          xcodebuild -exportArchive \
+            -archivePath build/KanadeAppMac.xcarchive \
+            -exportOptionsPlist ExportOptions.plist \
+            -exportPath build/export \
+            -authenticationKeyPath ~/private_keys \
+            -authenticationKeyID "${{ secrets.APP_STORE_CONNECT_KEY_ID }}" \
+            -authenticationKeyIssuerID "${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}" \
+            -allowProvisioningUpdates
+
+      - name: Upload to TestFlight
+        run: |
+          xcrun altool --upload-app \
+            --type macos \
+            --file build/export/*.pkg \
+            --apiKey "${{ secrets.APP_STORE_CONNECT_KEY_ID }}" \
+            --apiIssuer "${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}"
+
+      - name: Upload Archive on Failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-archive
+          path: build/KanadeAppMac.xcarchive
