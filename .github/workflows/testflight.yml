@@ -72,7 +72,7 @@ jobs:
             -scheme KanadeApp \
             -destination "generic/platform=iOS" \
             -archivePath build/KanadeApp.xcarchive \
-            -authenticationKeyPath ~/private_keys/ \
+            -authenticationKeyPath ~/private_keys/AuthKey_${{ secrets.APP_STORE_CONNECT_KEY_ID }}.p8 \
             -authenticationKeyID "${{ secrets.APP_STORE_CONNECT_KEY_ID }}" \
             -authenticationKeyIssuerID "${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}" \
             -allowProvisioningUpdates \
@@ -103,7 +103,7 @@ jobs:
             -archivePath build/KanadeApp.xcarchive \
             -exportOptionsPlist ExportOptions.plist \
             -exportPath build/export \
-            -authenticationKeyPath ~/private_keys/ \
+            -authenticationKeyPath ~/private_keys/AuthKey_${{ secrets.APP_STORE_CONNECT_KEY_ID }}.p8 \
             -authenticationKeyID "${{ secrets.APP_STORE_CONNECT_KEY_ID }}" \
             -authenticationKeyIssuerID "${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}" \
             -allowProvisioningUpdates
@@ -160,7 +160,7 @@ jobs:
             -scheme KanadeAppMac \
             -destination "generic/platform=macOS" \
             -archivePath build/KanadeAppMac.xcarchive \
-            -authenticationKeyPath ~/private_keys/ \
+            -authenticationKeyPath ~/private_keys/AuthKey_${{ secrets.APP_STORE_CONNECT_KEY_ID }}.p8 \
             -authenticationKeyID "${{ secrets.APP_STORE_CONNECT_KEY_ID }}" \
             -authenticationKeyIssuerID "${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}" \
             -allowProvisioningUpdates \
@@ -193,7 +193,7 @@ jobs:
             -archivePath build/KanadeAppMac.xcarchive \
             -exportOptionsPlist ExportOptions.plist \
             -exportPath build/export \
-            -authenticationKeyPath ~/private_keys/ \
+            -authenticationKeyPath ~/private_keys/AuthKey_${{ secrets.APP_STORE_CONNECT_KEY_ID }}.p8 \
             -authenticationKeyID "${{ secrets.APP_STORE_CONNECT_KEY_ID }}" \
             -authenticationKeyIssuerID "${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}" \
             -allowProvisioningUpdates
