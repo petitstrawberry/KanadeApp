@@ -112,16 +112,26 @@ jobs:
 
       - name: Upload to TestFlight
         run: |
-          xcrun altool --validate-app \
+          VALIDATE_OUTPUT=$(xcrun altool --validate-app \
             --type ios \
             --file build/export/*.ipa \
             --apiKey "${{ secrets.APP_STORE_CONNECT_KEY_ID }}" \
-            --apiIssuer "${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}"
-          xcrun altool --upload-app \
+            --apiIssuer "${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}" 2>&1)
+          echo "$VALIDATE_OUTPUT"
+          if echo "$VALIDATE_OUTPUT" | grep -q "ERROR\|failed"; then
+            echo "::error::Validation failed"
+            exit 1
+          fi
+          UPLOAD_OUTPUT=$(xcrun altool --upload-app \
             --type ios \
             --file build/export/*.ipa \
             --apiKey "${{ secrets.APP_STORE_CONNECT_KEY_ID }}" \
-            --apiIssuer "${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}"
+            --apiIssuer "${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}" 2>&1)
+          echo "$UPLOAD_OUTPUT"
+          if echo "$UPLOAD_OUTPUT" | grep -q "ERROR\|failed"; then
+            echo "::error::Upload failed"
+            exit 1
+          fi
 
       - name: Upload Archive on Failure
         if: failure()
@@ -208,16 +218,26 @@ jobs:
 
       - name: Upload to TestFlight
         run: |
-          xcrun altool --validate-app \
+          VALIDATE_OUTPUT=$(xcrun altool --validate-app \
             --type macos \
             --file build/export/*.pkg \
             --apiKey "${{ secrets.APP_STORE_CONNECT_KEY_ID }}" \
-            --apiIssuer "${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}"
-          xcrun altool --upload-app \
+            --apiIssuer "${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}" 2>&1)
+          echo "$VALIDATE_OUTPUT"
+          if echo "$VALIDATE_OUTPUT" | grep -q "ERROR\|failed"; then
+            echo "::error::Validation failed"
+            exit 1
+          fi
+          UPLOAD_OUTPUT=$(xcrun altool --upload-app \
             --type macos \
             --file build/export/*.pkg \
             --apiKey "${{ secrets.APP_STORE_CONNECT_KEY_ID }}" \
-            --apiIssuer "${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}"
+            --apiIssuer "${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}" 2>&1)
+          echo "$UPLOAD_OUTPUT"
+          if echo "$UPLOAD_OUTPUT" | grep -q "ERROR\|failed"; then
+            echo "::error::Upload failed"
+            exit 1
+          fi
 
       - name: Upload Archive on Failure
         if: failure()
