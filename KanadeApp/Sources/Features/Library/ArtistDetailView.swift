@@ -42,6 +42,7 @@ struct ArtistDetailView: View {
                 .padding()
             }
         }
+        .barBottomAvoidance()
         .navigationTitle(artist)
         .task {
             await loadAlbums()

@@ -13,6 +13,8 @@ final class ShellUIState {
     var isQueuePanelPresented = false
     #endif
 
+    var barBottomInset: CGFloat = 0
+
     var isChromeSuppressed: Bool {
         !chromeSuppressionReasons.isEmpty
     }
@@ -66,5 +68,19 @@ private struct ShellChromeSuppressionModifier: ViewModifier {
 extension View {
     func shellChromeSuppressed(_ isActive: Bool, reason: ShellChromeSuppressionReason) -> some View {
         modifier(ShellChromeSuppressionModifier(isActive: isActive, reason: reason))
+    }
+
+    func barBottomAvoidance() -> some View {
+        modifier(BarBottomAvoidanceModifier())
+    }
+}
+
+private struct BarBottomAvoidanceModifier: ViewModifier {
+    @Environment(ShellUIState.self) private var shellUI
+
+    func body(content: Content) -> some View {
+        content.safeAreaInset(edge: .bottom, spacing: 0) {
+            Color.clear.frame(height: shellUI.barBottomInset)
+        }
     }
 }

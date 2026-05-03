@@ -8,6 +8,8 @@ struct ContentView: View {
     @State private var showNowPlaying = false
     @State private var showNodes = false
     @State private var showSettings = false
+    @State private var sidebarWidth: CGFloat = 200
+    @State private var splitColumnVisibility: NavigationSplitViewVisibility = .automatic
     #if os(macOS)
     @State private var queueWidth: CGFloat = 280
     #endif
@@ -78,25 +80,37 @@ struct ContentView: View {
     }
 
     private var baseSplitView: some View {
-        NavigationSplitView {
-            sidebarList
-        } detail: {
-            detailColumn
-                .safeAreaInset(edge: .top, spacing: 0) {
-                    connectionBanner
+        GeometryReader { geo in
+            ZStack(alignment: .bottomTrailing) {
+                NavigationSplitView(columnVisibility: $splitColumnVisibility) {
+                    sidebarList
+                        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { sidebarWidth = $0 }
+                } detail: {
+                    detailColumn
+                        .safeAreaInset(edge: .top, spacing: 0) {
+                            connectionBanner
+                        }
                 }
-                .safeAreaInset(edge: .bottom, spacing: 0) {
-            if appState.shouldShowMiniPlayer && !shellUI.isChromeSuppressed {
-                        NowPlayingBar(placement: .macFloating, onActivate: {
-                            #if os(iOS)
-                            showNowPlaying = true
-                            #endif
-                        })
-                            .padding(.horizontal, 20)
-                            .padding(.bottom, 12)
-                    }
+
+                if appState.shouldShowMiniPlayer && !shellUI.isChromeSuppressed {
+                    NowPlayingBar(placement: .macFloating, onActivate: {
+                        #if os(iOS)
+                        showNowPlaying = true
+                        #endif
+                    })
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 12)
+                    .frame(width: splitColumnVisibility == .detailOnly
+                        ? geo.size.width
+                        : geo.size.width - sidebarWidth
+                    )
+                    .animation(.spring(duration: 0.3), value: splitColumnVisibility)
                 }
+            }
         }
+        .onAppear { shellUI.barBottomInset = barBottomInset }
+        .onChange(of: appState.shouldShowMiniPlayer) { shellUI.barBottomInset = barBottomInset }
+        .onChange(of: shellUI.isChromeSuppressed) { shellUI.barBottomInset = barBottomInset }
     }
 
     private var sidebarList: some View {
@@ -137,6 +151,10 @@ struct ContentView: View {
     private var activeLibrarySection: LibrarySection? {
         guard case .library(let section) = sidebarSelection else { return nil }
         return section
+    }
+
+    private var barBottomInset: CGFloat {
+        (appState.shouldShowMiniPlayer && !shellUI.isChromeSuppressed) ? 88 : 0
     }
 
     @ViewBuilder

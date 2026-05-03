@@ -42,6 +42,7 @@ struct GenreDetailView: View {
                 .padding()
             }
         }
+        .barBottomAvoidance()
         .navigationTitle(genre)
         .task {
             await loadAlbums()

@@ -63,6 +63,7 @@ struct AlbumDetailView: View {
             }
         }
         .listStyle(.plain)
+        .barBottomAvoidance()
         .scrollContentBackground(.hidden)
         #if os(iOS)
         .environment(\.editMode, $editMode)
