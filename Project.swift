@@ -51,7 +51,6 @@ let project = Project(
                     "ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME": "AccentColor",
                     "MARKETING_VERSION": "1.0.0",
                     "CURRENT_PROJECT_VERSION": "1",
-                    "ENABLE_APP_SANDBOX": "YES",
                 ]
             ),
             additionalFiles: [".package.resolved"]
@@ -79,7 +78,6 @@ let project = Project(
             ),
             sources: ["KanadeApp/Sources/**"],
             resources: ["KanadeApp/Resources/**"],
-            entitlements: .file(path: "KanadeApp/Config/KanadeAppMac.entitlements"),
             scripts: [
                 .post(
                     script: """
@@ -93,14 +91,20 @@ let project = Project(
                 .external(name: "KanadeKit"),
                 .external(name: "AcknowList"),
             ],
-            settings: .settings(
+              settings: .settings(
                 base: [
                     "INFOPLIST_KEY_CFBundle_DISPLAY_NAME": "Kanade",
                     "PRODUCT_DISPLAY_NAME": "Kanade",
                     "ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME": "AccentColor",
                     "MARKETING_VERSION": "1.0.0",
                     "CURRENT_PROJECT_VERSION": "1",
+                ],
+                debug: [
+                    "ENABLE_APP_SANDBOX": "NO",
+                ],
+                release: [
                     "ENABLE_APP_SANDBOX": "YES",
+                    "ENABLE_OUTGOING_NETWORK_CONNECTIONS": "YES",
                 ]
             ),
             additionalFiles: [".package.resolved"]

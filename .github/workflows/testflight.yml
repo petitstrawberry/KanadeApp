@@ -111,6 +111,11 @@ jobs:
 
       - name: Upload to TestFlight
         run: |
+          xcrun altool --validate-app \
+            --type ios \
+            --file build/export/*.ipa \
+            --apiKey "${{ secrets.APP_STORE_CONNECT_KEY_ID }}" \
+            --apiIssuer "${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}"
           xcrun altool --upload-app \
             --type ios \
             --file build/export/*.ipa \
@@ -202,6 +207,11 @@ jobs:
 
       - name: Upload to TestFlight
         run: |
+          xcrun altool --validate-app \
+            --type macos \
+            --file build/export/*.pkg \
+            --apiKey "${{ secrets.APP_STORE_CONNECT_KEY_ID }}" \
+            --apiIssuer "${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}"
           xcrun altool --upload-app \
             --type macos \
             --file build/export/*.pkg \

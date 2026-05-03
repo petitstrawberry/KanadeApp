@@ -1,6 +1,0 @@
-{
-  "com.apple.security.app-sandbox": true,
-  "com.apple.security.network.client": true,
-  "com.apple.security.network.server": true,
-  "com.apple.security.audio": true
-}
