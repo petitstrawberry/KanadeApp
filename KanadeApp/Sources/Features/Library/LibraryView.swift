@@ -6,6 +6,8 @@ struct AlbumTile: View {
     let appState: AppState?
     let mediaClient: MediaClient?
     var coverOverride: (() -> AnyView)?
+    var onPlay: (() -> Void)?
+    var onAddToQueue: (() -> Void)?
 
     @State private var isHovered = false
 
@@ -80,6 +82,10 @@ struct AlbumTile: View {
     }
 
     private func addAlbumToQueue() {
+        if let onAddToQueue {
+            onAddToQueue()
+            return
+        }
         guard let appState, let client = appState.client else { return }
         Task {
             guard let tracks = try? await client.getAlbumTracks(albumId: album.id) else { return }
@@ -90,6 +96,10 @@ struct AlbumTile: View {
     }
 
     private func playAlbum() {
+        if let onPlay {
+            onPlay()
+            return
+        }
         guard let appState, let client = appState.client else { return }
         Task {
             guard let tracks = try? await client.getAlbumTracks(albumId: album.id) else { return }

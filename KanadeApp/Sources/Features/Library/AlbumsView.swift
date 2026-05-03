@@ -46,7 +46,9 @@ struct AlbumsView: View {
                                                     .foregroundStyle(.white.opacity(0.8))
                                             }
                                         )
-                                    }
+                                    },
+                                    onPlay: { Task { await playAllSongs() } },
+                                    onAddToQueue: { Task { await addAllSongsToQueue() } }
                                 )
                             }
                             .buttonStyle(.plain)
@@ -133,5 +135,23 @@ struct AlbumsView: View {
         }
 
         isLoading = false
+    }
+
+    private func playAllSongs() async {
+        guard let client = appState.client else { return }
+        let tracks = (try? await client.getTracks()) ?? []
+        guard !tracks.isEmpty else { return }
+        await MainActor.run {
+            appState.performReplaceAndPlay(tracks: tracks, index: 0)
+        }
+    }
+
+    private func addAllSongsToQueue() async {
+        guard let client = appState.client else { return }
+        let tracks = (try? await client.getTracks()) ?? []
+        guard !tracks.isEmpty else { return }
+        await MainActor.run {
+            appState.performAddTracksToQueue(tracks)
+        }
     }
 }
