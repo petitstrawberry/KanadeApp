@@ -378,18 +378,6 @@ struct ConnectionPrompt: View {
     }
 }
 
-struct AllSongsPlaceholderView: View, Identifiable {
-    let id = UUID()
-
-    var body: some View {
-        ContentUnavailableView(
-            "All Songs Coming Soon",
-            systemImage: "music.note",
-            description: Text("All Songs view isn't implemented yet.")
-        )
-    }
-}
-
 #if os(macOS)
 private struct QueueResizer: View {
     @Binding var width: CGFloat
