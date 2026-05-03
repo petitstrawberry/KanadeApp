@@ -13,7 +13,11 @@ struct GenreDetailView: View {
     var body: some View {
         ScrollView {
             if let errorMessage {
-                ContentUnavailableView("Unable to Load Genre", systemImage: "guitars", description: Text(errorMessage))
+                 VStack(spacing: 16) {
+                     ContentUnavailableView("Unable to Load Genre", systemImage: "guitars", description: Text(errorMessage))
+                     Button("Retry") { Task { await loadAlbums() } }
+                         .buttonStyle(.bordered)
+                 }
                     .frame(maxWidth: .infinity, minHeight: 240)
                     .padding()
             } else if isLoading && albums.isEmpty {
@@ -38,6 +42,7 @@ struct GenreDetailView: View {
                 .padding()
             }
         }
+        .barBottomAvoidance()
         .navigationTitle(genre)
         .task {
             await loadAlbums()
@@ -55,7 +60,7 @@ struct GenreDetailView: View {
         errorMessage = nil
 
         do {
-            albums = try await client.getGenreAlbums(genre: genre)
+            albums = try await withAutoRetry { try await client.getGenreAlbums(genre: genre) }
         } catch {
             errorMessage = error.localizedDescription
         }

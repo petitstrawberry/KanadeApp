@@ -26,12 +26,16 @@ struct AddToPlaylistPickerSheet: View {
                     ProgressView()
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-                case .failed(let message):
-                    ContentUnavailableView(
-                        "Unable to Load Playlists",
-                        systemImage: "exclamationmark.triangle",
-                        description: Text(message)
-                    )
+                 case .failed(let message):
+                     VStack(spacing: 16) {
+                         ContentUnavailableView(
+                             "Unable to Load Playlists",
+                             systemImage: "exclamationmark.triangle",
+                             description: Text(message)
+                         )
+                         Button("Retry") { Task { await loadPlaylists() } }
+                             .buttonStyle(.bordered)
+                     }
 
                 case .loaded:
                     let normalPlaylists = playlists.filter { $0.kind == .normal }
@@ -113,7 +117,7 @@ struct AddToPlaylistPickerSheet: View {
         }
 
         do {
-            playlists = try await client.getPlaylists()
+            playlists = try await withAutoRetry { try await client.getPlaylists() }
             loadState = .loaded
         } catch {
             loadState = .failed(error.localizedDescription)

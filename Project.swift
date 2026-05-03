@@ -3,17 +3,13 @@ import ProjectDescription
 let project = Project(
     name: "KanadeApp",
     organizationName: "petitstrawberry",
-    packages: [
-        .package(url: "https://github.com/petitstrawberry/KanadeKit.git", from: "0.2.0"),
-        .package(url: "https://github.com/vtourraine/AcknowList.git", from: "3.0.0"),
-    ],
     targets: [
-        Target(
+        .target(
             name: "KanadeApp",
-            platform: .iOS,
+            destinations: .iOS,
             product: .app,
-            bundleId: "dev.ichigo.KanadeApp",
-            deploymentTarget: DeploymentTarget.iOS(targetVersion: "26.1", devices: [.iphone, .ipad]),
+            bundleId: "dev.ichigo.Kanade",
+            deploymentTargets: .iOS("26.1"),
             infoPlist: .extendingDefault(
                 with: [
                     "CFBundleDisplayName": "Kanade",
@@ -45,23 +41,26 @@ let project = Project(
                 ),
             ],
             dependencies: [
-                .package(product: "KanadeKit"),
-                .package(product: "AcknowList"),
+                .external(name: "KanadeKit"),
+                .external(name: "AcknowList"),
             ],
             settings: .settings(
                 base: [
                     "INFOPLIST_KEY_CFBundle_DISPLAY_NAME": "Kanade",
                     "PRODUCT_DISPLAY_NAME": "Kanade",
+                    "ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME": "AccentColor",
+                    "MARKETING_VERSION": "1.0.0",
+                    "CURRENT_PROJECT_VERSION": "1",
                 ]
             ),
-            additionalFiles: [".package.resolved"],
+            additionalFiles: [".package.resolved"]
         ),
-        Target(
+        .target(
             name: "KanadeAppMac",
-            platform: .macOS,
+            destinations: .macOS,
             product: .app,
-            bundleId: "dev.ichigo.KanadeAppMac",
-            deploymentTarget: DeploymentTarget.macOS(targetVersion: "26.0"),
+            bundleId: "dev.ichigo.Kanade",
+            deploymentTargets: .macOS("26.0"),
             infoPlist: .extendingDefault(
                 with: [
                     "CFBundleDisplayName": "Kanade",
@@ -73,11 +72,13 @@ let project = Project(
                         "_kanade._tcp",
                     ],
                     "NSLocalNetworkUsageDescription": "Kanade uses the local network to discover and connect to music servers.",
+                    "NSSupportsAutomaticTermination": true,
+                    "NSSupportsSuddenTermination": true,
                 ]
             ),
             sources: ["KanadeApp/Sources/**"],
             resources: ["KanadeApp/Resources/**"],
-            entitlements: "KanadeApp/Config/KanadeAppMac.entitlements",
+            entitlements: .file(path: "KanadeApp/Config/KanadeAppMac.entitlements"),
             scripts: [
                 .post(
                     script: """
@@ -88,22 +89,25 @@ let project = Project(
                 ),
             ],
             dependencies: [
-                .package(product: "KanadeKit"),
-                .package(product: "AcknowList"),
+                .external(name: "KanadeKit"),
+                .external(name: "AcknowList"),
             ],
             settings: .settings(
                 base: [
                     "INFOPLIST_KEY_CFBundle_DISPLAY_NAME": "Kanade",
                     "PRODUCT_DISPLAY_NAME": "Kanade",
+                    "ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME": "AccentColor",
+                    "MARKETING_VERSION": "1.0.0",
+                    "CURRENT_PROJECT_VERSION": "1",
                 ]
             ),
-            additionalFiles: [".package.resolved"],
+            additionalFiles: [".package.resolved"]
         ),
-        Target(
+        .target(
             name: "KanadeAppTests",
-            platform: .iOS,
+            destinations: .iOS,
             product: .unitTests,
-            bundleId: "dev.ichigo.KanadeAppTests",
+            bundleId: "dev.ichigo.KanadeTests",
             infoPlist: .default,
             sources: ["KanadeApp/Tests/**"],
             dependencies: [

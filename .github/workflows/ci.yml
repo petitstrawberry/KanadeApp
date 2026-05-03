@@ -1,0 +1,74 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [develop, main, release/*]
+  push:
+    branches: [develop]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-ios:
+    name: "Build iOS"
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v5
+      - uses: cachix/install-nix-action@v30
+        with:
+          github_access_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install & Generate
+        run: |
+          nix develop --command tuist install
+          nix develop --command tuist generate
+          xcodebuild build \
+            -workspace KanadeApp.xcworkspace \
+            -scheme KanadeApp \
+            -destination "platform=iOS Simulator,name=iPhone 17" \
+            -configuration Debug \
+            CODE_SIGNING_ALLOWED=NO
+
+  build-macos:
+    name: "Build macOS"
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v5
+      - uses: cachix/install-nix-action@v30
+        with:
+          github_access_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install & Generate
+        run: |
+          nix develop --command tuist install
+          nix develop --command tuist generate
+          xcodebuild build \
+            -workspace KanadeApp.xcworkspace \
+            -scheme KanadeAppMac \
+            -destination "platform=macOS" \
+            -configuration Debug \
+            CODE_SIGNING_ALLOWED=NO
+
+  test:
+    name: "Test"
+    runs-on: macos-26
+    needs: [build-ios]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: cachix/install-nix-action@v30
+        with:
+          github_access_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install & Generate & Test
+        run: |
+          nix develop --command tuist install
+          nix develop --command tuist generate
+          xcodebuild test \
+            -workspace KanadeApp.xcworkspace \
+            -scheme KanadeApp \
+            -destination "platform=iOS Simulator,name=iPhone 17" \
+            -configuration Debug \
+            -only-testing:KanadeAppTests \
+            CODE_SIGNING_ALLOWED=NO

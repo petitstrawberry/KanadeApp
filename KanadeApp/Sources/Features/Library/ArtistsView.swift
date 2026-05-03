@@ -13,8 +13,12 @@ struct ArtistsView: View {
             if isLoading && artists.isEmpty {
                 ProgressView("Loading Artists")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if let errorMessage {
-                ContentUnavailableView("Unable to Load Artists", systemImage: "music.mic", description: Text(errorMessage))
+             } else if let errorMessage {
+                  VStack(spacing: 16) {
+                      ContentUnavailableView("Unable to Load Artists", systemImage: "music.mic", description: Text(errorMessage))
+                      Button("Retry") { Task { await loadArtists() } }
+                          .buttonStyle(.bordered)
+                  }
             } else {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 16) {
@@ -56,7 +60,7 @@ struct ArtistsView: View {
 
         do {
             var seen = Set<String>()
-            artists = try await client.getArtists().filter { seen.insert($0).inserted }
+            artists = try await withAutoRetry { try await client.getArtists() }.filter { seen.insert($0).inserted }
         } catch {
             if let kanadeError = error as? KanadeError {
                 errorMessage = String(describing: kanadeError)

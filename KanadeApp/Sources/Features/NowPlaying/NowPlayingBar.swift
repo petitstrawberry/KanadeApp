@@ -1,5 +1,6 @@
 import SwiftUI
 import KanadeKit
+import Foundation
 
 enum NowPlayingBarPlacement {
     case iosAccessory
@@ -18,6 +19,10 @@ struct NowPlayingBar: View {
     @State private var volumeValue: Double = 0
     @State private var isAdjustingVolume = false
     @State private var showNodes = false
+    @State private var suppressPositionSyncUntil = Date.distantPast
+    #if os(macOS)
+    @Environment(ShellUIState.self) private var shellUI
+    #endif
 
     private var playbackState: AppState.EffectivePlaybackState {
         appState.effectivePlaybackState
@@ -71,7 +76,8 @@ struct NowPlayingBar: View {
             syncVolumeValue()
         }
         .onChange(of: currentTrack?.id) {
-            syncSeekPosition()
+            suppressPositionSyncUntil = Date().addingTimeInterval(0.35)
+            resetSeekPositionForTrackChange()
         }
         .onChange(of: currentPosition, handleCurrentPositionChange)
         .onChange(of: currentVolume, handleCurrentVolumeChange)
@@ -120,6 +126,8 @@ struct NowPlayingBar: View {
                 .allowsHitTesting(false)
 
             Spacer()
+
+            queueToggleButton
 
             compactOutputButton
 
@@ -324,6 +332,8 @@ struct NowPlayingBar: View {
         HStack(spacing: 12) {
             Spacer()
 
+            queueToggleButton
+
             outputPickerButton
 
             HStack(spacing: 8) {
@@ -371,6 +381,25 @@ struct NowPlayingBar: View {
         }
         .buttonStyle(.plain)
     }
+
+    #if os(macOS)
+    private var queueToggleButton: some View {
+        Button {
+            withAnimation(.easeInOut(duration: 0.2)) {
+                shellUI.isQueuePanelPresented.toggle()
+            }
+        } label: {
+            Image(systemName: "list.bullet")
+                .font(.system(size: 14))
+                .foregroundStyle(shellUI.isQueuePanelPresented ? Color.accentColor : .secondary)
+                .frame(width: 32, height: 32)
+                .background(Circle().fill(.quaternary.opacity(0.6)))
+        }
+        .buttonStyle(.plain)
+    }
+    #else
+    private var queueToggleButton: EmptyView { EmptyView() }
+    #endif
 
     @ViewBuilder
     private var barBackground: some View {
@@ -468,6 +497,8 @@ struct NowPlayingBar: View {
     }
 
     private func handleCurrentPositionChange() {
+        guard Date() >= suppressPositionSyncUntil else { return }
+
         if let target = pendingSeekTarget {
             if abs(currentPosition - target) < 2.0 {
                 pendingSeekTarget = nil
@@ -482,6 +513,12 @@ struct NowPlayingBar: View {
         if !isAdjustingVolume {
             syncVolumeValue()
         }
+    }
+
+    private func resetSeekPositionForTrackChange() {
+        pendingSeekTarget = nil
+        isSeeking = false
+        seekPosition = 0
     }
 
     private func syncSeekPosition() {

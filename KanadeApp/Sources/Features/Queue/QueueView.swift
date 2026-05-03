@@ -17,13 +17,6 @@ struct QueueView: View {
                 )
             } else {
                 Section {
-                    Button(role: .destructive) {
-                        appState.performClearQueue()
-                    } label: {
-                        Label("Clear Queue", systemImage: "trash")
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-
                     let otherNodes = appState.remoteNodes.filter {
                         $0.id != appState.controlledNodeId
                     }

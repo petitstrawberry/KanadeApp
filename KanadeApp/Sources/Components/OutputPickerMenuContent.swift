@@ -5,7 +5,7 @@ struct OutputPickerMenuContent: View {
     @Environment(AppState.self) private var appState
 
     private var nodes: [Node] {
-        appState.client?.state?.nodes ?? []
+        appState.playbackState?.nodes ?? []
     }
 
     private var remoteNodes: [Node] {
@@ -65,7 +65,7 @@ struct OutputPickerMenuContent: View {
                             Text(node.name)
                             Spacer()
                             Circle()
-                                .fill(node.connected ? Color.green : Color.red)
+                                .fill(node.connected ? Color.green : Color.secondary)
                                 .frame(width: 8, height: 8)
                             if appState.controlledNodeId == node.id {
                                 Image(systemName: "checkmark")

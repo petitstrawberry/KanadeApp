@@ -16,14 +16,18 @@ struct AlbumsView: View {
             if isLoading && albums.isEmpty {
                 ProgressView("Loading Albums")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if let errorMessage {
-                ContentUnavailableView("Unable to Load Albums", systemImage: "square.stack", description: Text(errorMessage))
+             } else if let errorMessage {
+                VStack(spacing: 16) {
+                    ContentUnavailableView("Unable to Load Albums", systemImage: "square.stack", description: Text(errorMessage))
+                    Button("Retry") { Task { await loadAlbums() } }
+                        .buttonStyle(.bordered)
+                }
             } else {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 16) {
                         LazyVGrid(columns: albumColumns, spacing: 16) {
                             NavigationLink {
-                                AllSongsPlaceholderView()
+                                AllSongsDetailView()
                             } label: {
                                 AlbumTile(
                                     album: allSongsAlbum,
@@ -42,7 +46,9 @@ struct AlbumsView: View {
                                                     .foregroundStyle(.white.opacity(0.8))
                                             }
                                         )
-                                    }
+                                    },
+                                    onPlay: { Task { await playAllSongs() } },
+                                    onAddToQueue: { Task { await addAllSongsToQueue() } }
                                 )
                             }
                             .buttonStyle(.plain)
@@ -119,7 +125,7 @@ struct AlbumsView: View {
         errorMessage = nil
 
         do {
-            albums = try await client.getAlbums()
+            albums = try await withAutoRetry { try await client.getAlbums() }
         } catch {
             if let kanadeError = error as? KanadeError {
                 errorMessage = String(describing: kanadeError)
@@ -129,5 +135,23 @@ struct AlbumsView: View {
         }
 
         isLoading = false
+    }
+
+    private func playAllSongs() async {
+        guard let client = appState.client else { return }
+        let tracks = (try? await client.getTracks()) ?? []
+        guard !tracks.isEmpty else { return }
+        await MainActor.run {
+            appState.performReplaceAndPlay(tracks: tracks, index: 0)
+        }
+    }
+
+    private func addAllSongsToQueue() async {
+        guard let client = appState.client else { return }
+        let tracks = (try? await client.getTracks()) ?? []
+        guard !tracks.isEmpty else { return }
+        await MainActor.run {
+            appState.performAddTracksToQueue(tracks)
+        }
     }
 }

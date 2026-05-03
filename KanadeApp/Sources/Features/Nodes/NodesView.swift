@@ -4,7 +4,7 @@ import KanadeKit
 struct NodesView: View {
     @Environment(AppState.self) private var appState
 
-    private var remoteNodes: [Node] { appState.remoteNodes }
+    private var remoteNodes: [Node] { appState.visibleRemoteNodes }
 
     var body: some View {
         List {
@@ -40,7 +40,6 @@ struct NodesView: View {
                             appState.performSelectNode(node.id)
                         } label: {
                             nodeRow(node)
-                                .foregroundStyle(isLocalSession ? .secondary : .primary)
                         }
                         .buttonStyle(.plain)
                         .disabled(isLocalSession)
@@ -118,7 +117,7 @@ struct NodesView: View {
         let currentTrack = currentTrack(for: node)
         HStack(alignment: .top, spacing: 12) {
             Circle()
-                .fill(node.connected ? Color.green : Color.red)
+                .fill(node.connected ? Color.green : Color.secondary)
                 .frame(width: 12, height: 12)
                 .padding(.top, 5)
 
@@ -135,7 +134,7 @@ struct NodesView: View {
                 }
 
                 HStack(spacing: 10) {
-                    statusBadge(title: node.connected ? "Connected" : "Disconnected", tint: node.connected ? .green : .red)
+                    statusBadge(title: node.connected ? "Connected" : "Disconnected", tint: node.connected ? .green : .secondary)
                     statusBadge(title: playbackStatusText(node.status), tint: playbackStatusColor(node.status))
                 }
 
@@ -175,7 +174,7 @@ struct NodesView: View {
 
     private var localNode: Node? {
         guard let localNodeId = appState.localNodeId else { return nil }
-        return appState.client?.state?.nodes.first(where: { $0.id == localNodeId })
+        return appState.playbackState?.nodes.first(where: { $0.id == localNodeId })
     }
 
     private var localCurrentTrack: Track? {
@@ -235,9 +234,9 @@ struct NodesView: View {
     private func statusBadge(title: String, tint: Color) -> some View {
         Text(title)
             .font(.caption.weight(.medium))
-            .foregroundStyle(tint)
+            .foregroundStyle(.white)
             .padding(.horizontal, 8)
             .padding(.vertical, 4)
-            .background(tint.opacity(0.14), in: Capsule())
+            .background(tint, in: Capsule())
     }
 }

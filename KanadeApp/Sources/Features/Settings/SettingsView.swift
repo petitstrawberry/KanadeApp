@@ -80,14 +80,14 @@ struct SettingsView: View {
                                 Button("Remove") {
                                     appState.removeClientCertificate()
                                 }
-                                .foregroundStyle(.red)
+                                .foregroundStyle(.secondary)
                             } else {
                                 Image(systemName: "xmark.circle")
                                     .foregroundStyle(.secondary)
-                            }
-                            Button("Import .p12") {
-                                importTarget = .clientCertificate
-                                showImporter = true
+                                Button("Import .p12") {
+                                    importTarget = .clientCertificate
+                                    showImporter = true
+                                }
                             }
                         }
                     }
@@ -112,14 +112,14 @@ struct SettingsView: View {
                                 Button("Remove") {
                                     appState.trustedCAData = nil
                                 }
-                                .foregroundStyle(.red)
+                                .foregroundStyle(.secondary)
                             } else {
                                 Image(systemName: "xmark.circle")
                                     .foregroundStyle(.secondary)
-                            }
-                            Button("Import .pem") {
-                                importTarget = .trustedCA
-                                showImporter = true
+                                Button("Import .pem") {
+                                    importTarget = .trustedCA
+                                    showImporter = true
+                                }
                             }
                         }
                     }

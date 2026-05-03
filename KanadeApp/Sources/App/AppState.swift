@@ -54,8 +54,9 @@ final class AppState {
     @ObservationIgnored private static let useTLSKey = "kanade.useTLS"
     @ObservationIgnored private static let allowSelfSignedKey = "kanade.allowSelfSigned"
     @ObservationIgnored private static let trustedCADataKey = "kanade.trustedCAData"
-    @ObservationIgnored private static let fallbackConnectionPollInterval: TimeInterval = 5.0
-    @ObservationIgnored private static let reconnectingIndicatorDelay: TimeInterval = 3.0
+    @ObservationIgnored private static let fallbackConnectionPollInterval: TimeInterval = 1.0
+    @ObservationIgnored private static let reconnectingIndicatorDelay: TimeInterval = 0.75
+    @ObservationIgnored private static let autoRetryDelay: TimeInterval = 30.0
 
     @ObservationIgnored private let defaults = UserDefaults.standard
     @ObservationIgnored private var didAttemptStartupConnect = false
@@ -65,14 +66,17 @@ final class AppState {
     @ObservationIgnored private var localSessionRegistrationPending = false
     @ObservationIgnored private var isLocalPlaybackTearingDown = false
     @ObservationIgnored private var lastSentLocalSessionUpdateKey: LocalSessionUpdateKey?
+    @ObservationIgnored private var lastSentQueueTrackIDs: [String]?
     @ObservationIgnored private var connectionMonitorTask: Task<Void, Never>?
     @ObservationIgnored private var reconnectingIndicatorTask: Task<Void, Never>?
+    @ObservationIgnored private var autoRetryTask: Task<Void, Never>?
     private var lastPrefetchQueueKey: String?
 
     var showRemoteUnavailablePrompt = false
     var serverDiscovery = ServerDiscovery()
 
     var client: KanadeClient?
+    var playbackState: PlaybackState?
     var mediaClient: MediaClient?
     var controlTarget: ControlTarget {
         didSet {
@@ -183,6 +187,17 @@ final class AppState {
 
     var isControllingLocalNode: Bool {
         controlTarget == .local
+    }
+
+    var needsOutputSelection: Bool {
+        controlTarget == .remote && controlledNodeId == nil
+    }
+
+    var outputSelectionPromptText: String {
+        if remoteNodes.isEmpty {
+            return "Choose this device or another output."
+        }
+        return "Choose an output node."
     }
 
     var shouldShowMiniPlayer: Bool {
@@ -321,6 +336,8 @@ final class AppState {
     }
 
     func connect() {
+        autoRetryTask?.cancel()
+        autoRetryTask = nil
         disconnect()
         persistConnectionSettings()
 
@@ -330,7 +347,9 @@ final class AppState {
             host: serverAddress,
             port: serverPort,
             useTLS: useTLS,
-            reconnectPolicy: ReconnectPolicy(initialDelay: 2.0, maxDelay: 10.0, base: 2.0),
+            reconnectPolicy: ReconnectPolicy(initialDelay: 1.0, maxDelay: 15.0, base: 1.7, maxAttempts: Int.max),
+            heartbeatTimeout: 15.0,
+            requestTimeout: 8.0,
             tlsConfiguration: tlsConfig
         )
 
@@ -382,10 +401,19 @@ final class AppState {
             isConnected: client?.connected ?? false,
             reconnectExhausted: client?.reconnectExhausted ?? false
         )
+        let previous = connectionSnapshot
         if connectionSnapshot != next {
             connectionSnapshot = next
         }
         updateReconnectingIndicatorVisibility()
+
+        if !previous.reconnectExhausted,
+           next.reconnectExhausted,
+           let client,
+           manuallyDisconnectedClientID != ObjectIdentifier(client) {
+            autoSwitchToLocalOnUnexpectedDisconnect(client)
+            scheduleAutoRetry()
+        }
     }
 
     private func updateReconnectingIndicatorVisibility() {
@@ -413,6 +441,21 @@ final class AppState {
             guard let self, self.isReconnectPending else { return }
             self.showReconnectingIndicator = true
             self.reconnectingIndicatorTask = nil
+        }
+    }
+
+    private func scheduleAutoRetry() {
+        autoRetryTask?.cancel()
+        autoRetryTask = Task { @MainActor [weak self] in
+            do {
+                try await Task.sleep(for: .seconds(Self.autoRetryDelay))
+            } catch is CancellationError {
+                return
+            } catch {
+                return
+            }
+            guard let self, self.connectionRequiresManualRetry else { return }
+            self.retryConnection()
         }
     }
 
@@ -480,6 +523,7 @@ final class AppState {
         if isControllingLocalNode {
             localPlayback?.play()
         } else {
+            guard ensureRemotePlaybackTarget() else { return }
             syncRemoteSelectionIfNeeded()
             client?.play()
         }
@@ -489,6 +533,7 @@ final class AppState {
         if isControllingLocalNode {
             localPlayback?.pause()
         } else {
+            guard ensureRemotePlaybackTarget() else { return }
             syncRemoteSelectionIfNeeded()
             client?.pause()
         }
@@ -506,6 +551,7 @@ final class AppState {
         if isControllingLocalNode {
             localPlayback?.seek(to: positionSecs)
         } else {
+            guard ensureRemotePlaybackTarget() else { return }
             syncRemoteSelectionIfNeeded()
             client?.seek(to: positionSecs)
         }
@@ -515,6 +561,7 @@ final class AppState {
         if isControllingLocalNode {
             localPlayback?.setVolume(volume)
         } else {
+            guard ensureRemotePlaybackTarget() else { return }
             syncRemoteSelectionIfNeeded()
             client?.setVolume(volume)
         }
@@ -524,6 +571,7 @@ final class AppState {
         if isControllingLocalNode {
             localPlayback?.next()
         } else {
+            guard ensureRemotePlaybackTarget() else { return }
             syncRemoteSelectionIfNeeded()
             client?.next()
         }
@@ -533,6 +581,7 @@ final class AppState {
         if isControllingLocalNode {
             localPlayback?.previous()
         } else {
+            guard ensureRemotePlaybackTarget() else { return }
             syncRemoteSelectionIfNeeded()
             client?.previous()
         }
@@ -542,6 +591,7 @@ final class AppState {
         if isControllingLocalNode {
             localPlayback?.setRepeat(repeatMode)
         } else {
+            guard ensureRemotePlaybackTarget() else { return }
             syncRemoteSelectionIfNeeded()
             client?.setRepeat(repeatMode)
         }
@@ -551,6 +601,7 @@ final class AppState {
         if isControllingLocalNode {
             localPlayback?.setShuffle(enabled)
         } else {
+            guard ensureRemotePlaybackTarget() else { return }
             syncRemoteSelectionIfNeeded()
             client?.setShuffle(enabled)
         }
@@ -560,6 +611,7 @@ final class AppState {
         if isControllingLocalNode {
             localPlayback?.jumpToIndex(index)
         } else {
+            guard ensureRemotePlaybackTarget() else { return }
             syncRemoteSelectionIfNeeded()
             client?.playIndex(index)
         }
@@ -569,6 +621,7 @@ final class AppState {
         if isControllingLocalNode {
             localPlayback?.playTracks(tracks, startIndex: index)
         } else {
+            guard ensureRemotePlaybackTarget() else { return }
             syncRemoteSelectionIfNeeded()
             client?.replaceAndPlay(tracks: tracks, index: index)
         }
@@ -582,6 +635,7 @@ final class AppState {
         if isControllingLocalNode {
             localPlayback?.addTracksToQueue(tracks)
         } else {
+            guard ensureRemotePlaybackTarget() else { return }
             syncRemoteSelectionIfNeeded()
             client?.addTracksToQueue(tracks)
         }
@@ -591,6 +645,7 @@ final class AppState {
         if isControllingLocalNode {
             localPlayback?.removeFromQueue(index)
         } else {
+            guard ensureRemotePlaybackTarget() else { return }
             syncRemoteSelectionIfNeeded()
             client?.removeFromQueue(index)
         }
@@ -600,6 +655,7 @@ final class AppState {
         if isControllingLocalNode {
             localPlayback?.moveInQueue(from: sourceIndex, to: destinationIndex)
         } else {
+            guard ensureRemotePlaybackTarget() else { return }
             syncRemoteSelectionIfNeeded()
             client?.moveInQueue(from: sourceIndex, to: destinationIndex)
         }
@@ -609,12 +665,19 @@ final class AppState {
         if isControllingLocalNode {
             localPlayback?.clearQueue()
         } else {
+            guard ensureRemotePlaybackTarget() else { return }
             syncRemoteSelectionIfNeeded()
             client?.clearQueue()
         }
     }
 
     func performSelectNode(_ nodeId: String) {
+        guard let node = playbackState?.nodes.first(where: { $0.id == nodeId }),
+              isSelectableRemoteNode(node)
+        else {
+            showRemoteUnavailablePrompt = true
+            return
+        }
         controlTarget = .remote
         lastRemoteNodeId = nodeId
         controlledNodeId = nodeId
@@ -640,6 +703,7 @@ final class AppState {
         localSessionRegistrationPending = false
         localSessionRegistered = false
         lastSentLocalSessionUpdateKey = nil
+        lastSentQueueTrackIDs = nil
         localNodeId = nil
         localPlayback?.stop()
         localPlayback = nil
@@ -666,6 +730,13 @@ final class AppState {
     }
 
     func switchToRemote(nodeId: String) {
+        guard let node = playbackState?.nodes.first(where: { $0.id == nodeId }),
+              isSelectableRemoteNode(node)
+        else {
+            setResolvedControlledNodeId(nil)
+            showRemoteUnavailablePrompt = true
+            return
+        }
         if let from = controlledNodeId, from != nodeId {
             client?.handoff(fromNodeId: from, toNodeId: nodeId)
         }
@@ -680,6 +751,7 @@ final class AppState {
         localSessionRegistrationPending = true
         localSessionRegistered = false
         lastSentLocalSessionUpdateKey = nil
+        lastSentQueueTrackIDs = nil
         client.localSessionStart(deviceName: currentDeviceName, deviceId: deviceId)
     }
 
@@ -714,16 +786,18 @@ final class AppState {
     ) {
         guard let client, client.connected else { return }
         guard let localNodeId,
-              client.state?.nodes.contains(where: { $0.id == localNodeId }) == true
+              playbackState?.nodes.contains(where: { $0.id == localNodeId }) == true
         else {
             localSessionRegistered = false
             localSessionRegistrationPending = false
             lastSentLocalSessionUpdateKey = nil
+            lastSentQueueTrackIDs = nil
             return
         }
 
+        let trackIDs = queue.map(\.id)
         let updateKey = LocalSessionUpdateKey(
-            trackIDs: queue.map(\ .id),
+            trackIDs: trackIDs,
             currentIndex: currentIndex,
             status: status,
             positionMillis: Int((positionSecs * 1000).rounded()),
@@ -735,8 +809,16 @@ final class AppState {
         guard updateKey != lastSentLocalSessionUpdateKey else { return }
         lastSentLocalSessionUpdateKey = updateKey
 
+        let queueToSend: [Track]?
+        if trackIDs == lastSentQueueTrackIDs {
+            queueToSend = nil
+        } else {
+            lastSentQueueTrackIDs = trackIDs
+            queueToSend = queue
+        }
+
         client.localSessionUpdate(
-            queue: queue,
+            queue: queueToSend,
             currentIndex: currentIndex,
             positionSecs: positionSecs,
             status: status,
@@ -813,26 +895,32 @@ final class AppState {
         #endif
     }
 
+    var visibleRemoteNodes: [Node] {
+        (playbackState?.nodes ?? []).filter {
+            shouldDisplayRemoteNode($0)
+        }
+    }
+
     var remoteNodes: [Node] {
-        (client?.state?.nodes ?? []).filter {
-            $0.connected && $0.deviceId != deviceId
+        visibleRemoteNodes.filter {
+            isSelectableRemoteNode($0)
         }
     }
 
     private var controlledRemoteNode: Node? {
         guard controlTarget == .remote, let id = controlledNodeId else { return nil }
-        return client?.state?.nodes.first(where: { $0.id == id })
+        return playbackState?.nodes.first(where: { $0.id == id })
     }
 
     private var fallbackRemoteNodeId: String? {
         let excludeId = localNodeId
 
-        if let selected = client?.state?.selectedNodeId, selected != excludeId {
+        if let selected = playbackState?.selectedNodeId, selected != excludeId {
             return selected
         }
 
-        return client?.state?.nodes.first(where: { $0.id != excludeId && $0.connected })?.id
-            ?? client?.state?.nodes.first(where: { $0.id != excludeId })?.id
+        return playbackState?.nodes.first(where: { $0.id != excludeId && $0.connected })?.id
+            ?? playbackState?.nodes.first(where: { $0.id != excludeId })?.id
     }
 
     private func setResolvedControlledNodeId(_ nodeId: String?) {
@@ -846,11 +934,38 @@ final class AppState {
         guard controlTarget == .remote,
               let controlledNodeId,
               controlledNodeId != localNodeId,
-              client?.state?.nodes.contains(where: { $0.id == controlledNodeId }) == true,
-              controlledNodeId != client?.state?.selectedNodeId
+              playbackState?.nodes.contains(where: { $0.id == controlledNodeId }) == true,
+              controlledNodeId != playbackState?.selectedNodeId
         else { return }
 
         client?.selectNode(controlledNodeId)
+    }
+
+    private func ensureRemotePlaybackTarget() -> Bool {
+        guard controlTarget == .remote else { return true }
+        guard let controlledNodeId,
+              let node = playbackState?.nodes.first(where: { $0.id == controlledNodeId }),
+              isSelectableRemoteNode(node)
+        else {
+            setResolvedControlledNodeId(nil)
+            showRemoteUnavailablePrompt = true
+            return false
+        }
+
+        return true
+    }
+
+    private func shouldDisplayRemoteNode(_ node: Node) -> Bool {
+        node.connected
+            && node.id != localNodeId
+            && node.deviceId != deviceId
+            && !(node.nodeType == .local && node.name == currentDeviceName)
+    }
+
+    private func isSelectableRemoteNode(_ node: Node) -> Bool {
+        node.connected
+            && shouldDisplayRemoteNode(node)
+            && node.nodeType != .local
     }
 
     private func refreshEffectiveFallbacks(from state: PlaybackState) {
@@ -902,13 +1017,14 @@ extension AppState: KanadeClientDelegate {
             self.localSessionRegistered = false
             self.localSessionRegistrationPending = false
             self.lastSentLocalSessionUpdateKey = nil
+            self.lastSentQueueTrackIDs = nil
             self.localNodeId = nil
             if self.controlTarget == .local {
                 self.restoreLocalPlaybackIfNeeded()
             }
-            if self.localPlayback != nil {
-                self.registerLocalSession()
-            }
+            // Wait for the first server state before registering a local session.
+            // If an older local node for this device is still present, didUpdateState
+            // can adopt it instead of creating a duplicate node on every reconnect.
         }
     }
 
@@ -926,6 +1042,7 @@ extension AppState: KanadeClientDelegate {
             self.localSessionRegistered = false
             self.localSessionRegistrationPending = false
             self.lastSentLocalSessionUpdateKey = nil
+            self.lastSentQueueTrackIDs = nil
         }
     }
 
@@ -939,27 +1056,55 @@ extension AppState: KanadeClientDelegate {
         Task { @MainActor [weak self] in
             guard let self else { return }
             self.refreshConnectionSnapshot()
+            self.playbackState = state
 
-            let matchedLocalNode = state.nodes.first(where: { $0.deviceId == self.deviceId })
-                ?? state.nodes.first(where: { $0.nodeType == .local && $0.name == self.currentDeviceName })
+            let localNodeCandidates = state.nodes.filter {
+                $0.deviceId == self.deviceId
+                    || ($0.nodeType == .local && $0.name == self.currentDeviceName)
+            }
+            let matchedLocalNode = localNodeCandidates.first(where: {
+                $0.id == self.localNodeId && $0.connected
+            })
+                ?? localNodeCandidates.first(where: {
+                    $0.connected && $0.deviceId == self.deviceId
+                })
+                ?? localNodeCandidates.first(where: { $0.connected })
+                ?? localNodeCandidates.first(where: { $0.id == self.localNodeId })
+                ?? localNodeCandidates.first(where: { $0.deviceId == self.deviceId })
+                ?? localNodeCandidates.first
 
+            let shouldFlushLocalSessionUpdate: Bool
             if let matchedLocalNode {
+                let wasAwaitingRegistration = self.localSessionRegistrationPending || !self.localSessionRegistered
                 self.localNodeId = matchedLocalNode.id
-                self.localSessionRegistered = true
-                self.localSessionRegistrationPending = false
+                self.localSessionRegistered = matchedLocalNode.connected
+                if matchedLocalNode.connected {
+                    self.localSessionRegistrationPending = false
+                    shouldFlushLocalSessionUpdate = wasAwaitingRegistration
+                } else {
+                    shouldFlushLocalSessionUpdate = false
+                }
             } else if let localNodeId = self.localNodeId,
                       !state.nodes.contains(where: { $0.id == localNodeId }) {
                 self.localNodeId = nil
                 self.localSessionRegistered = false
                 self.localSessionRegistrationPending = false
                 self.lastSentLocalSessionUpdateKey = nil
+                self.lastSentQueueTrackIDs = nil
+                shouldFlushLocalSessionUpdate = false
+            } else {
+                shouldFlushLocalSessionUpdate = false
             }
 
             if self.localPlayback != nil
-                && self.localNodeId == nil
                 && !self.localSessionRegistrationPending
+                && (self.localNodeId == nil || matchedLocalNode?.connected == false)
             {
                 self.registerLocalSession()
+            }
+
+            if shouldFlushLocalSessionUpdate {
+                self.sendLocalSessionUpdate()
             }
 
             switch self.controlTarget {
@@ -973,7 +1118,8 @@ extension AppState: KanadeClientDelegate {
                 let preferred = self.lastRemoteNodeId ?? state.selectedNodeId
 
                 if let preferred,
-                   state.nodes.contains(where: { $0.id == preferred && $0.nodeType != .local }) {
+                   let preferredNode = state.nodes.first(where: { $0.id == preferred }),
+                   self.isSelectableRemoteNode(preferredNode) {
                     self.setResolvedControlledNodeId(preferred)
                     self.showRemoteUnavailablePrompt = false
                 } else {
@@ -1058,7 +1204,7 @@ extension AppState: KanadeClientDelegate {
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrAccount as String: key,
             kSecValueData as String: data,
-            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock,
+            kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
         ]
         SecItemAdd(query as CFDictionary, nil)
     }

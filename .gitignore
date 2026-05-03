@@ -7,3 +7,6 @@ Derived/
 *.xcworkspace
 *.xcodeproj
 test-music-dir
+KanadeKit/
+kanade/
+.direnv/
