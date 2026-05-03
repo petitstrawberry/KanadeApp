@@ -3,17 +3,13 @@ import ProjectDescription
 let project = Project(
     name: "KanadeApp",
     organizationName: "petitstrawberry",
-    packages: [
-        .package(url: "https://github.com/petitstrawberry/KanadeKit.git", from: "0.6.0"),
-        .package(url: "https://github.com/vtourraine/AcknowList.git", from: "3.0.0"),
-    ],
     targets: [
-        Target(
+        .target(
             name: "KanadeApp",
-            platform: .iOS,
+            destinations: .iOS,
             product: .app,
             bundleId: "dev.ichigo.Kanade",
-            deploymentTarget: DeploymentTarget.iOS(targetVersion: "26.1", devices: [.iphone, .ipad]),
+            deploymentTargets: .iOS("26.1"),
             infoPlist: .extendingDefault(
                 with: [
                     "CFBundleDisplayName": "Kanade",
@@ -45,8 +41,8 @@ let project = Project(
                 ),
             ],
             dependencies: [
-                .package(product: "KanadeKit"),
-                .package(product: "AcknowList"),
+                .external(name: "KanadeKit"),
+                .external(name: "AcknowList"),
             ],
             settings: .settings(
                 base: [
@@ -57,14 +53,14 @@ let project = Project(
                     "CURRENT_PROJECT_VERSION": "1",
                 ]
             ),
-            additionalFiles: [".package.resolved"],
+            additionalFiles: [".package.resolved"]
         ),
-        Target(
+        .target(
             name: "KanadeAppMac",
-            platform: .macOS,
+            destinations: .macOS,
             product: .app,
             bundleId: "dev.ichigo.Kanade",
-            deploymentTarget: DeploymentTarget.macOS(targetVersion: "26.0"),
+            deploymentTargets: .macOS("26.0"),
             infoPlist: .extendingDefault(
                 with: [
                     "CFBundleDisplayName": "Kanade",
@@ -82,7 +78,7 @@ let project = Project(
             ),
             sources: ["KanadeApp/Sources/**"],
             resources: ["KanadeApp/Resources/**"],
-            entitlements: "KanadeApp/Config/KanadeAppMac.entitlements",
+            entitlements: .file(path: "KanadeApp/Config/KanadeAppMac.entitlements"),
             scripts: [
                 .post(
                     script: """
@@ -93,8 +89,8 @@ let project = Project(
                 ),
             ],
             dependencies: [
-                .package(product: "KanadeKit"),
-                .package(product: "AcknowList"),
+                .external(name: "KanadeKit"),
+                .external(name: "AcknowList"),
             ],
             settings: .settings(
                 base: [
@@ -105,11 +101,11 @@ let project = Project(
                     "CURRENT_PROJECT_VERSION": "1",
                 ]
             ),
-            additionalFiles: [".package.resolved"],
+            additionalFiles: [".package.resolved"]
         ),
-        Target(
+        .target(
             name: "KanadeAppTests",
-            platform: .iOS,
+            destinations: .iOS,
             product: .unitTests,
             bundleId: "dev.ichigo.KanadeTests",
             infoPlist: .default,

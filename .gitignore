@@ -9,3 +9,4 @@ Derived/
 test-music-dir
 KanadeKit/
 kanade/
+.direnv/

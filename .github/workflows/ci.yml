@@ -16,13 +16,14 @@ jobs:
     runs-on: macos-26
     steps:
       - uses: actions/checkout@v4
+      - uses: cachix/install-nix-action@v30
+        with:
+          github_access_token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Install Tuist
-        run: brew install tuist
-
-      - name: Generate & Build
+      - name: Install & Generate
         run: |
-          tuist generate
+          nix develop --command tuist install
+          nix develop --command tuist generate
           xcodebuild build \
             -workspace KanadeApp.xcworkspace \
             -scheme KanadeApp \
@@ -35,13 +36,14 @@ jobs:
     runs-on: macos-26
     steps:
       - uses: actions/checkout@v4
+      - uses: cachix/install-nix-action@v30
+        with:
+          github_access_token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Install Tuist
-        run: brew install tuist
-
-      - name: Generate & Build
+      - name: Install & Generate
         run: |
-          tuist generate
+          nix develop --command tuist install
+          nix develop --command tuist generate
           xcodebuild build \
             -workspace KanadeApp.xcworkspace \
             -scheme KanadeAppMac \
@@ -55,13 +57,14 @@ jobs:
     needs: [build-ios]
     steps:
       - uses: actions/checkout@v4
+      - uses: cachix/install-nix-action@v30
+        with:
+          github_access_token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Install Tuist
-        run: brew install tuist
-
-      - name: Generate & Test
+      - name: Install & Generate & Test
         run: |
-          tuist generate
+          nix develop --command tuist install
+          nix develop --command tuist generate
           xcodebuild test \
             -workspace KanadeApp.xcworkspace \
             -scheme KanadeAppTests \
